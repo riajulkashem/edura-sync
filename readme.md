@@ -108,7 +108,7 @@ Download artifacts from the GitHub Actions tab.
 ## Troubleshooting
 
 - **macOS Crashes**:
-  - Check `logs/zkteco.log` for errors.
+  - Check `logs/primesync.log` for errors.
   - Run `python main.py` in terminal for console output.
   - Verify Python 3.9/3.10 compatibility.
   - Check crash reports in macOS Console.app.
