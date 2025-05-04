@@ -2,9 +2,12 @@
 
 import logging
 from datetime import datetime
+import os
 from typing import Optional
 import platform
 from pathlib import Path
+import tkinter as tk
+from tkinter import messagebox
 from core.config import Config
 
 class NotificationService:
@@ -56,6 +59,66 @@ class NotificationService:
         except Exception as e:
             self.logger.warning(f"Notification system initialization failed: {e}")
     
+    def _write_to_log_file(self, title: str, message: str) -> None:
+        """
+        Write notification content to the application log file.
+        
+        Args:
+            title: The notification title
+            message: The notification message
+        """
+        try:
+            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            log_message = f"[{timestamp}] {title}: {message}"
+            
+            # Just use the logger instead of a separate file
+            self.logger.info(log_message)
+        except Exception as e:
+            self.logger.error(f"Failed to write to notification log: {e}")
+    
+    def _get_notification_icon(self, notification_type: str) -> Optional[str]:
+        """
+        Return an appropriate icon path based on notification type.
+        
+        Args:
+            notification_type: Type of notification (info, error, warning)
+            
+        Returns:
+            Optional[str]: Path to icon or None if not found
+        """
+        # Use the default application icon for all notification types for now
+        if self.config.ICON_PATH and self.config.ICON_PATH.exists():
+            return str(self.config.ICON_PATH)
+        
+        # Can be expanded to use different icons for different notification types
+        return None
+    
+    def _show_tkinter_message(self, title: str, message: str) -> None:
+        """
+        Display a tkinter message box as a fallback notification method.
+        
+        Args:
+            title: The notification title
+            message: The notification message
+        """
+        try:
+            # Create a temporary root window that won't be shown
+            root = tk.Tk()
+            root.withdraw()
+            
+            # Show message dialog
+            if "error" in title.lower():
+                messagebox.showerror(title, message)
+            elif "warning" in title.lower():
+                messagebox.showwarning(title, message)
+            else:
+                messagebox.showinfo(title, message)
+            
+            # Clean up
+            root.destroy()
+        except Exception as e:
+            self.logger.error(f"Failed to show tkinter message: {e}")
+    
     def notify(self, title: str, message: str, notification_type: str) -> None:
         """
         Send a notification to the user, either via system notification or log file.
@@ -98,4 +161,5 @@ class NotificationService:
             self.logger.info(f"Notification sent successfully: {notification_title} - {message}")
         except Exception as e:
             self.logger.error(f"Failed to send notification: {e}")
-            # Fallback to tk
+            # Fallback to tkinter
+            self._show_tkinter_message(notification_title, message)

@@ -1,4 +1,3 @@
-# main.py
 import logging
 import sys
 import threading
@@ -81,6 +80,8 @@ class PrimeSync:
             self.attendance_repo,
             self.schedule_repo,
         )
+        
+        # Initialize dummy scheduler (no actual scheduling)
         self.scheduler = TaskScheduler(
             self.device_manager,
             self.api_client,
@@ -102,6 +103,8 @@ class PrimeSync:
             self.schedule_repo,
             self.notification_service,
         )
+
+        # Initialize system tray
         self.tray = SystemTray(
             self,
             self.config,
@@ -113,7 +116,7 @@ class PrimeSync:
             self.notification_service,
         )
 
-        # Load settings and start scheduler
+        # Load settings
         self._load_settings()
         self._add_to_startup()
 
@@ -124,7 +127,7 @@ class PrimeSync:
                 self.settings_gui.show_settings(first_run=True)
             else:
                 self.api_client.update_settings()
-                self.scheduler.update_settings()
+                # We're not calling scheduler.update_settings() since scheduler is disabled
             self.logger.info("Settings loaded successfully")
         except Exception as e:
             self.logger.error(f"Error loading settings: {e}")
@@ -156,6 +159,7 @@ class PrimeSync:
         self.logger.info("Initiating application shutdown")
 
         try:
+            # We still call scheduler.shutdown() but it's now a dummy method
             self.scheduler.shutdown()
             self.tray.stop()
             if not db.is_closed():

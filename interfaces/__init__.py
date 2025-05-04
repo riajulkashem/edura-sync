@@ -1,3 +1,2 @@
-from .gui import DashboardGUI, SettingsGUI, SystemTray
-
-__all__ = ['DashboardGUI', 'SettingsGUI', 'SystemTray']
+# interfaces/__init__.py
+# Empty file or minimal imports to avoid circular references

@@ -9,20 +9,23 @@ from core.config import Config
 from interfaces.database.repository import SettingsRepository, ScheduleRepository
 from services.notification import NotificationService
 
+
 class SettingsGUI:
     """
     Manages the settings GUI for the PrimeSync application.
     Allows configuration of cloud API settings and schedules.
     """
+
     def __init__(
-        self,
-        root: tk.Tk,
-        app: "PrimeSync",
-        security: SecurityManager,
-        settings_repo: SettingsRepository,
-        schedule_repo: ScheduleRepository,
-        notification_service: NotificationService,
+            self,
+            root: tk.Tk,
+            app: "PrimeSync",
+            security: SecurityManager,
+            settings_repo: SettingsRepository,
+            schedule_repo: ScheduleRepository,
+            notification_service: NotificationService,
     ):
+        self.info_url = '/api/info/'
         self.root = root
         self.app = app
         self.security = security
@@ -30,15 +33,17 @@ class SettingsGUI:
         self.schedule_repo = schedule_repo
         self.notification_service = notification_service
         self.logger = logging.getLogger(__name__)
+        self.auth_token = None
 
     def _load_icon(self, window: tk.Toplevel) -> None:
+        """Load and set the application icon for the window."""
         try:
             icon_path = Config().ICON_PATH
             if icon_path and icon_path.exists():
                 img = Image.open(icon_path)
                 photo = ImageTk.PhotoImage(img)
                 window.iconphoto(True, photo)
-                window._icon = photo
+                window._icon = photo  # Keep a reference to prevent garbage collection
                 self.logger.info(f"Icon set for {window.title()}")
         except Exception as e:
             self.logger.error(f"Icon load failed: {e}")
@@ -47,6 +52,9 @@ class SettingsGUI:
         """
         Show the settings form for cloud API and scheduler settings.
         Uses grid layout exclusively to ensure all widgets appear.
+
+        Args:
+            first_run: If True, prevents closing the window without saving settings
         """
         self.logger.info("Opening settings window")
 
@@ -54,7 +62,7 @@ class SettingsGUI:
             # Create the window and basic configuration
             settings_win = tk.Toplevel(self.root)
             settings_win.title("Settings")
-            settings_win.geometry("500x450")
+            settings_win.geometry("500x550")
             settings_win.resizable(False, False)
 
             # Bring window to front and ensure it's visible
@@ -80,7 +88,7 @@ class SettingsGUI:
             frame.grid_columnconfigure(1, weight=1)
 
             # Input fields
-            labels = ["Cloud API URL", "Username", "Password", "Client Key"]
+            labels = ["Cloud API URL", "Username", "Password", "Institute ID"]
             entries = []
             for idx, text in enumerate(labels):
                 ttk.Label(frame, text=text).grid(
@@ -100,7 +108,7 @@ class SettingsGUI:
                     padx=5
                 )
                 entries.append(ent)
-            cloud_api_url, username, password, client_key = entries
+            cloud_api_url, username, password, institute_id = entries
 
             # Status label
             status_label = ttk.Label(
@@ -121,86 +129,182 @@ class SettingsGUI:
             if settings:
                 cloud_api_url.delete(0, tk.END)
                 cloud_api_url.insert(0, settings.cloud_api_url or "")
-                
+
                 username.delete(0, tk.END)
                 username.insert(0, settings.username or "")
-                
+
                 # Handle possible decryption failures
                 try:
-                    decrypted_password = self.security.decrypt(settings.password)
-                    password.delete(0, tk.END)
-                    password.insert(0, decrypted_password)
+                    if settings.password:
+                        decrypted_password = self.security.decrypt(settings.password)
+                        password.delete(0, tk.END)
+                        password.insert(0, decrypted_password)
                 except Exception as e:
                     self.logger.error(f"Failed to decrypt password: {e}")
                     password.delete(0, tk.END)
                     # Leave password field empty if decryption fails
-                
-                client_key.delete(0, tk.END)
-                client_key.insert(0, settings.client_key or "")
-                
+
+                institute_id.delete(0, tk.END)
+                institute_id.insert(0, settings.institute_id or "")
+
+                # Store existing auth token if available
+                if hasattr(settings, 'auth_token') and settings.auth_token:
+                    self.auth_token = settings.auth_token
+
                 # Update status label to inform about decryption issues
-                if not settings.password or not self.security.decrypt(settings.password):
+                if not settings.password or (settings.password and not password.get()):
                     status_label.config(
                         text="Password decryption failed. Please enter a new password.",
                         foreground="orange"
                     )
 
             def check_connection():
+                """Check connection to the API server using provided credentials."""
                 url = cloud_api_url.get().strip()
                 user = username.get().strip()
                 pwd = password.get().strip()
-                key = client_key.get().strip()
-                if not all([url, user, pwd, key]):
+                inst_id = institute_id.get().strip()
+                if not all([url, user, pwd, inst_id]):
                     status_label.config(text="Please fill all fields", foreground="red")
-                    return
+                    return False
+
+                # Show checking status
+                status_label.config(text="Checking connection...", foreground="blue")
+                settings_win.update()
+
                 try:
-                    resp = requests.get(url, auth=(user, pwd), timeout=5)
-                    if resp.ok:
-                        status_label.config(text="Connection successful", foreground="green")
-                        # Use logging instead of notification which might cause issues
-                        self.logger.info("Connection test successful")
+                    # Determine the token URL
+                    login_url = f'{url}/api/token/'
+
+                    # Try token-based authentication
+                    token_payload = {
+                        "username": user,
+                        "password": pwd
+                    }
+
+                    token_response = requests.post(
+                        login_url,
+                        json=token_payload,
+                        headers={"Content-Type": "application/json"},
+                        timeout=10
+                    )
+
+                    if token_response.status_code == 200:
+                        # Token auth successful
+                        token_data = token_response.json()
+                        token = token_data.get('token') or token_data.get('access')
+
+                        if token:
+                            # Save token to the instance for later use
+                            self.auth_token = token
+
+                            # Now try to access the API with the token to verify
+                            headers = {"Authorization": f"Token {token}"}
+
+                            # Use institute_id as a parameter
+                            info_url = f'{url}{self.info_url}?institute={inst_id}'
+
+                            info_response = requests.get(
+                                info_url,
+                                headers=headers,
+                                timeout=5
+                            )
+
+                            if info_response.status_code == 200:
+                                # Successfully connected with token
+                                info_data = info_response.json()
+                                status_label.config(
+                                    text=f"Connected to {info_data.get('name', 'Django API')} v{info_data.get('version', '1.0')}",
+                                    foreground="green"
+                                )
+                                self.logger.info(f"Connected to Django API: {info_data}")
+                                return True
+                        else:
+                            status_label.config(text="Authentication failed: No token received", foreground="red")
+                            return False
                     else:
+                        # Authentication failed
                         status_label.config(
-                            text=f"Connection failed: {resp.status_code}",
+                            text=f"Authentication failed: {token_response.status_code}",
                             foreground="red"
                         )
-                        self.logger.warning(f"Connection test failed: {resp.status_code}")
+                        self.logger.warning(f"Authentication failed: {token_response.status_code}")
+                        return False
+
+                except requests.exceptions.ConnectionError:
+                    status_label.config(text="Connection error: Could not connect to server", foreground="red")
+                    self.logger.error("Connection error: Failed to connect to server")
+                except requests.exceptions.Timeout:
+                    status_label.config(text="Connection timed out", foreground="red")
+                    self.logger.error("Connection error: Request timed out")
                 except Exception as e:
-                    status_label.config(text=f"Error: {e}", foreground="red")
+                    status_label.config(text=f"Error: {str(e)}", foreground="red")
                     self.logger.error(f"Connection test error: {e}")
 
+                return False
+
             def save_settings():
+                """Save settings to the database and update related services."""
                 try:
+                    # Prepare data for saving
                     data = {
                         'cloud_api_url': cloud_api_url.get().strip(),
                         'username': username.get().strip(),
                         'password': self.security.encrypt(password.get().strip()),
-                        'client_key': client_key.get().strip(),
+                        'institute_id': institute_id.get().strip(),
                     }
+                    # Add auth_token to data if it exists
+                    if self.auth_token:
+                        data['auth_token'] = self.auth_token
+
+                    # Save settings to the database
                     self.settings_repo.save_settings(data)
-                    if not self.schedule_repo.get_all():
-                        self.schedule_repo.model.create(
-                            task_type='pull', schedule_time='00:00', enabled=True
-                        )
-                        self.schedule_repo.model.create(
-                            task_type='push', schedule_time='00:30', enabled=True
-                        )
+
+                    # Update API client with new settings
                     self.app.api_client.update_settings()
-                    self.app.scheduler.update_settings()
+
                     # Use status label instead of notification for confirmation
                     status_label.config(text="Settings saved successfully", foreground="green")
                     self.logger.info("Settings saved successfully")
 
+                    # If it's the first run, show the dashboard
                     if first_run:
                         self.app.dashboard_gui.show_dashboard()
+
+                    # Close the settings window
                     settings_win.destroy()
                 except Exception as e:
                     status_label.config(text=f"Save error: {e}", foreground="red")
                     self.logger.error(f"Save failed: {e}")
 
-            # In settings.py, add a reset button
+            # Add help text for Django API
+            help_frame = ttk.LabelFrame(frame, text="Django API Connection Help")
+            help_frame.grid(
+                row=len(labels) + 2,
+                column=0,
+                columnspan=2,
+                sticky='ew',
+                pady=(15, 5),
+                padx=5
+            )
 
-            # Buttons layout
+            help_text = (
+                "For Django REST API, use these URL formats:\n"
+                "• Token auth: http://your-django-site.com/api/token/\n"
+                "• API base: http://your-django-site.com/api/\n"
+                "Username and password should match your Django login.\n"
+                "Institute ID is your organization identifier in the system."
+            )
+
+            help_label = ttk.Label(
+                help_frame,
+                text=help_text,
+                font=("Helvetica", 9),
+                foreground="gray"
+            )
+            help_label.pack(padx=10, pady=10, fill="both")
+
+            # Button layout
             button_frame = ttk.Frame(frame)
             button_frame.grid(
                 row=len(labels) + 1,
@@ -216,11 +320,12 @@ class SettingsGUI:
 
             # Reset button function
             def reset_settings():
+                """Reset all form fields."""
                 try:
                     cloud_api_url.delete(0, tk.END)
                     username.delete(0, tk.END)
                     password.delete(0, tk.END)
-                    client_key.delete(0, tk.END)
+                    institute_id.delete(0, tk.END)
                     status_label.config(
                         text="Settings reset. Enter new values and save.",
                         foreground="blue"
@@ -233,7 +338,7 @@ class SettingsGUI:
                         foreground="red"
                     )
 
-            # Add the buttons
+            # Add buttons
             reset_btn = ttk.Button(
                 button_frame,
                 text="Reset",
@@ -258,6 +363,7 @@ class SettingsGUI:
             )
             save_btn.grid(row=0, column=2, padx=5, pady=5, sticky='ew')
 
+            # Force update to ensure buttons are visible
             button_frame.update()
 
             # Prevent window close on first run
@@ -267,14 +373,7 @@ class SettingsGUI:
                     lambda: self.app.exit_app()
                 )
 
-            # Force update
+            # Force update of all widgets
             settings_win.update_idletasks()
-
         except Exception as e:
-            self.logger.error(f"Failed to open settings window: {e}")
-            # Try to show a simple message if the main window fails
-            try:
-                import tkinter.messagebox as messagebox
-                messagebox.showerror("Error", f"Failed to open settings: {e}")
-            except Exception as msg_err:
-                self.logger.error(f"Also failed to show error message: {msg_err}")
+            self.logger.error(f"Failed to show settings window: {e}")
