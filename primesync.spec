@@ -12,7 +12,7 @@ hiddenimports = collect_submodules('zk') + [
     'peewee',
     'apscheduler',
     'pystray',
-    'plyer',
+    'notify-py',  # Replace plyer with notify-py
     'PIL',
     'cryptography',
     'requests',

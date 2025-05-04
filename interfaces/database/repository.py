@@ -64,17 +64,28 @@ class SettingsRepository(BaseRepository):
     def __init__(self):
         super().__init__(Settings)
 
-    def get_settings(self) -> Optional[Settings]:
-        """Retrieve the first settings record."""
-        with db.atomic():
-            return self.model.select().first()
+    def get_settings(self):
+        """Get application settings."""
+        try:
+            with db.atomic():
+                return self.model.get_or_none(id=1)
+        except Exception as e:
+            self.logger.error(f"Failed to retrieve settings: {e}")
+            return None
 
-    def save_settings(self, data: dict) -> None:
-        """Save or update settings."""
-        with db.atomic():
-            if self.model.select().exists():
-                self.model.delete().execute()
-            self.model.create(**data)
+    def save_settings(self, data):
+        """Save application settings."""
+        try:
+            with db.atomic():
+                settings, created = self.model.get_or_create(id=1)
+                for key, value in data.items():
+                    if hasattr(settings, key):
+                        setattr(settings, key, value)
+                settings.save()
+            return settings
+        except Exception as e:
+            self.logger.error(f"Failed to save settings: {e}")
+            raise
 
 
 class ScheduleRepository(BaseRepository):

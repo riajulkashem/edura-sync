@@ -74,7 +74,7 @@ class DashboardGUI:
             # Create new dashboard window
             self.dashboard_win = tk.Toplevel(self.root)
             self.dashboard_win.title("PrimeSync Dashboard")
-            self.dashboard_win.geometry("400x300")
+            self.dashboard_win.geometry("500x400")  # Slightly larger window
             self.dashboard_win.resizable(False, False)
             self._load_icon(self.dashboard_win)
             self.dashboard_win.protocol("WM_DELETE_WINDOW", self.dashboard_win.destroy)
@@ -82,10 +82,22 @@ class DashboardGUI:
             # Configure style
             style = ttk.Style()
             style.configure("TLabel", padding=5, font=("Helvetica", 12))
+            style.configure("Header.TLabel", font=("Helvetica", 14, "bold"))
+            style.configure("Good.TLabel", foreground="green")
+            style.configure("Warning.TLabel", foreground="orange")
+            style.configure("Error.TLabel", foreground="red")
 
             # Create main frame
-            frame = ttk.Frame(self.dashboard_win, padding=10)
-            frame.pack(fill="both", expand=True)
+            main_frame = ttk.Frame(self.dashboard_win, padding=10)
+            main_frame.pack(fill="both", expand=True)
+        
+            # Add header
+            header = ttk.Label(main_frame, text="PrimeSync Status Dashboard", style="Header.TLabel")
+            header.pack(pady=(0, 20))
+
+            # Create a content frame with border
+            content_frame = ttk.Frame(main_frame, relief="groove", borderwidth=2, padding=15)
+            content_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
             # Fetch data
             connected = self.device_repo.count_online()
@@ -98,23 +110,59 @@ class DashboardGUI:
             )
             db_path = str(Config().DB_PATH)
 
-            # Display data
-            ttk.Label(frame, text=f"Total Devices: {total_devices}").pack(pady=5)
-            ttk.Label(
-                frame,
-                text=f"Connected: {connected} / Not Connected: {total_devices - connected}",
-            ).pack(pady=5)
-            ttk.Label(frame, text=f"Total Users: {total_users}").pack(pady=5)
-            ttk.Label(frame, text=f"Last Synced: {last_synced}").pack(pady=5)
-            ttk.Label(frame, text=f"Database Path: {db_path}").pack(pady=5)
+            # Determine status styles
+            device_status_style = "Good.TLabel" if connected == total_devices else "Warning.TLabel"
+            sync_status_style = "Good.TLabel" if self.last_synced_time else "Warning.TLabel"
 
-            # Add refresh button
-            ttk.Button(frame, text="Refresh", command=self.show_dashboard).pack(pady=10)
+            # Display data with better formatting and status colors
+            ttk.Label(content_frame, text="Device Status:", font=("Helvetica", 12, "bold")).pack(anchor="w", pady=(0, 5))
+            ttk.Label(
+                content_frame, 
+                text=f"Total Devices: {total_devices}",
+            ).pack(anchor="w", padx=15)
+            ttk.Label(
+                content_frame,
+                text=f"Connected: {connected} / Not Connected: {total_devices - connected}",
+                style=device_status_style
+            ).pack(anchor="w", padx=15, pady=(0, 10))
+        
+            ttk.Label(content_frame, text="User Information:", font=("Helvetica", 12, "bold")).pack(anchor="w", pady=(5, 5))
+            ttk.Label(content_frame, text=f"Total Users: {total_users}").pack(anchor="w", padx=15, pady=(0, 10))
+        
+            ttk.Label(content_frame, text="Synchronization:", font=("Helvetica", 12, "bold")).pack(anchor="w", pady=(5, 5))
+            ttk.Label(
+                content_frame, 
+                text=f"Last Synced: {last_synced}",
+                style=sync_status_style
+            ).pack(anchor="w", padx=15)
+        
+            ttk.Label(content_frame, text="System Information:", font=("Helvetica", 12, "bold")).pack(anchor="w", pady=(10, 5))
+            ttk.Label(content_frame, text=f"Database: {db_path}").pack(anchor="w", padx=15)
+
+            # Button frame
+            button_frame = ttk.Frame(main_frame)
+            button_frame.pack(pady=15, fill="x")
+        
+            # Add action buttons
+            refresh_btn = ttk.Button(
+                button_frame, 
+                text="Refresh Dashboard", 
+                command=self.show_dashboard
+            )
+            refresh_btn.pack(side="left", padx=5)
+        
+            check_devices_btn = ttk.Button(
+                button_frame, 
+                text="Check Devices", 
+                command=lambda: self.app.device_manager.check_devices()
+            )
+            check_devices_btn.pack(side="right", padx=5)
 
             self.logger.info("Dashboard displayed successfully")
-            self.notification_service.notify(
-                "Dashboard", "Dashboard refreshed successfully", "info"
-            )
+            # Skip notification on refresh to avoid spamming
+            # self.notification_service.notify(
+            #    "Dashboard", "Dashboard refreshed successfully", "info"
+            # )
         except Exception as e:
             self.logger.error(f"Error displaying dashboard: {e}")
             self.notification_service.notify(

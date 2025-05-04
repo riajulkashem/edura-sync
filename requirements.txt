@@ -1,7 +1,7 @@
 peewee
 apscheduler
 pystray
-plyer
+notify-py
 Pillow
 cryptography
 requests

@@ -30,6 +30,11 @@ from services.device_manager import DeviceManager
 from services.notification import NotificationService
 from services.scheduler import TaskScheduler
 
+def handle_exception(exc_type, exc_value, exc_traceback):
+    """Global exception handler to log unhandled exceptions"""
+    logging.error("Unhandled exception", exc_info=(exc_type, exc_value, exc_traceback))
+    return sys.__excepthook__(exc_type, exc_value, exc_traceback)
+
 
 class PrimeSync:
     """
@@ -165,15 +170,29 @@ class PrimeSync:
 
 
 if __name__ == "__main__":
+    # Set up logging
     logging.basicConfig(
         filename=Config().LOG_FILE,
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",
         filemode="a",
     )
+
+    # Set up global exception handler
+    sys.excepthook = handle_exception
+
     try:
         app = PrimeSync()
         app.run()
     except Exception as e:
         logging.critical(f"Fatal error starting application: {e}")
+
+        # Try to show an error dialog
+        try:
+            import tkinter.messagebox as messagebox
+
+            messagebox.showerror("PrimeSync Error", f"Fatal error: {e}")
+        except:
+            pass
+
         sys.exit(1)

@@ -109,9 +109,10 @@ class SystemTray:
             self.logger.info("System tray initialized")
         except Exception as e:
             self.logger.error(f"Failed to setup system tray: {e}")
-            self.notification_service.notify(
-                "Error", f"Failed to setup system tray: {str(e)}", "error"
-            )
+            # Just log errors, don't use notification during setup
+            # self.notification_service.notify(
+            #     "Error", f"Failed to setup system tray: {str(e)}", "error"
+            # )
 
     def _run_action(self, func, action_name: str):
         """
@@ -125,15 +126,27 @@ class SystemTray:
 
         def wrapper():
             self.logger.info(f"System tray action triggered: {action_name}")
+
+            # For GUI-related actions, ensure they run on the main thread
+            if action_name in ["Show Settings", "Show Dashboard"]:
+                try:
+                    # Schedule the function to run on the main thread
+                    self.app.root.after(10, func)
+                    self.logger.info(f"Scheduled {action_name} on main thread")
+                    return
+                except Exception as e:
+                    self.logger.error(f"Failed to schedule {action_name}: {e}")
+                    # Fall through to try direct execution
+
+            # For non-GUI actions or if scheduling failed
             try:
                 result = func()
                 self.logger.info(f"System tray action completed: {action_name}")
                 return result
             except Exception as e:
                 self.logger.error(f"System tray action failed: {action_name} - {e}")
-                self.notification_service.notify(
-                    "Error", f"Action failed: {action_name} - {str(e)}", "error"
-                )
+                # Use logger instead of notification to avoid potential recursive errors
+                self.logger.error(f"Action failed: {action_name} - {str(e)}")
 
         return wrapper
 

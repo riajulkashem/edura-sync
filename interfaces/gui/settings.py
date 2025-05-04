@@ -2,7 +2,6 @@ import logging
 import tkinter as tk
 from tkinter import ttk
 import requests
-
 from PIL import Image, ImageTk
 
 from core.security import SecurityManager
@@ -10,13 +9,11 @@ from core.config import Config
 from interfaces.database.repository import SettingsRepository, ScheduleRepository
 from services.notification import NotificationService
 
-
 class SettingsGUI:
     """
     Manages the settings GUI for the PrimeSync application.
     Allows configuration of cloud API settings and schedules.
     """
-
     def __init__(
         self,
         root: tk.Tk,
@@ -26,16 +23,6 @@ class SettingsGUI:
         schedule_repo: ScheduleRepository,
         notification_service: NotificationService,
     ):
-        """
-        Initialize the settings GUI with dependencies.
-        Args:
-            root: The root Tkinter window.
-            app: Reference to the main PrimeSync application.
-            security: SecurityManager for encryption/decryption.
-            settings_repo: Repository for settings data.
-            schedule_repo: Repository for schedule data.
-            notification_service: Service for sending notifications.
-        """
         self.root = root
         self.app = app
         self.security = security
@@ -45,180 +32,249 @@ class SettingsGUI:
         self.logger = logging.getLogger(__name__)
 
     def _load_icon(self, window: tk.Toplevel) -> None:
-        """
-        Load and set the application icon for a Tkinter window.
-        Args:
-            window: The Tkinter window to set the icon for.
-        """
         try:
-            config = Config()
-            icon_path = config.ICON_PATH
-            if icon_path and icon_path.exists() and icon_path.is_file():
-                icon_image = Image.open(icon_path)
-                icon_photo = ImageTk.PhotoImage(icon_image)
-                window.iconphoto(True, icon_photo)
-                window._icon = icon_photo  # Prevent garbage collection
-                self.logger.info(f"Set icon for window: {window.title()}")
-            else:
-                self.logger.warning(f"Icon file not available at {icon_path}")
+            icon_path = Config().ICON_PATH
+            if icon_path and icon_path.exists():
+                img = Image.open(icon_path)
+                photo = ImageTk.PhotoImage(img)
+                window.iconphoto(True, photo)
+                window._icon = photo
+                self.logger.info(f"Icon set for {window.title()}")
         except Exception as e:
-            self.logger.error(f"Failed to set icon for window {window.title()}: {e}")
+            self.logger.error(f"Icon load failed: {e}")
 
     def show_settings(self, first_run: bool = False) -> None:
         """
-        Show the settings form for configuring cloud API and schedules.
-        Args:
-            first_run: Whether this is the first run, preventing window closure.
+        Show the settings form for cloud API and scheduler settings.
+        Uses grid layout exclusively to ensure all widgets appear.
         """
         self.logger.info("Opening settings window")
+
         try:
+            # Create the window and basic configuration
             settings_win = tk.Toplevel(self.root)
             settings_win.title("Settings")
             settings_win.geometry("500x450")
             settings_win.resizable(False, False)
+
+            # Bring window to front and ensure it's visible
+            settings_win.attributes('-topmost', True)
+            settings_win.update()
+            settings_win.attributes('-topmost', False)
+
+            # Load the icon
             self._load_icon(settings_win)
 
-            # Configure style
+            # Configure styles
             style = ttk.Style()
             style.configure("TLabel", padding=5, font=("Helvetica", 10))
             style.configure("TEntry", padding=5)
             style.configure("TButton", padding=5)
 
-            # Create main frame
+            # Main frame
             frame = ttk.Frame(settings_win, padding=10)
-            frame.pack(fill="both", expand=True)
+            frame.grid(row=0, column=0, sticky='nsew')
+            settings_win.grid_columnconfigure(0, weight=1)
+            settings_win.grid_rowconfigure(0, weight=1)
+            frame.grid_columnconfigure(0, weight=0)
+            frame.grid_columnconfigure(1, weight=1)
 
-            # Cloud API URL
-            ttk.Label(frame, text="Cloud API URL").pack()
-            cloud_api_url = ttk.Entry(frame, width=50)
-            cloud_api_url.pack(pady=5)
-            cloud_api_url.insert(0, "https://api.example.com")
+            # Input fields
+            labels = ["Cloud API URL", "Username", "Password", "Client Key"]
+            entries = []
+            for idx, text in enumerate(labels):
+                ttk.Label(frame, text=text).grid(
+                    row=idx,
+                    column=0,
+                    sticky='w',
+                    pady=5,
+                    padx=5
+                )
+                show = '*' if text == 'Password' else None
+                ent = ttk.Entry(frame, width=50, show=show)
+                ent.grid(
+                    row=idx,
+                    column=1,
+                    sticky='we',
+                    pady=5,
+                    padx=5
+                )
+                entries.append(ent)
+            cloud_api_url, username, password, client_key = entries
 
-            # Username
-            ttk.Label(frame, text="Username").pack()
-            username = ttk.Entry(frame, width=50)
-            username.pack(pady=5)
+            # Status label
+            status_label = ttk.Label(
+                frame,
+                text="Here is the status of your connection...",
+                foreground="gray",
+                font=("Helvetica", 10)
+            )
+            status_label.grid(
+                row=len(labels),
+                column=0,
+                columnspan=2,
+                pady=10
+            )
 
-            # Password
-            ttk.Label(frame, text="Password").pack()
-            password = ttk.Entry(frame, width=50, show="*")
-            password.pack(pady=5)
-
-            # Client Key
-            ttk.Label(frame, text="Client Key").pack()
-            client_key = ttk.Entry(frame, width=50)
-            client_key.pack(pady=5)
-
-            # Status label for connection test
-            status_label = ttk.Label(frame, text="")
-            status_label.pack(pady=5)
-
-            # Load existing settings
+            # Pre-fill existing settings
             settings = self.settings_repo.get_settings()
             if settings:
                 cloud_api_url.delete(0, tk.END)
-                cloud_api_url.insert(0, settings.cloud_api_url)
+                cloud_api_url.insert(0, settings.cloud_api_url or "")
+                
                 username.delete(0, tk.END)
-                username.insert(0, settings.username)
-                password.delete(0, tk.END)
-                password.insert(0, self.security.decrypt(settings.password))
+                username.insert(0, settings.username or "")
+                
+                # Handle possible decryption failures
+                try:
+                    decrypted_password = self.security.decrypt(settings.password)
+                    password.delete(0, tk.END)
+                    password.insert(0, decrypted_password)
+                except Exception as e:
+                    self.logger.error(f"Failed to decrypt password: {e}")
+                    password.delete(0, tk.END)
+                    # Leave password field empty if decryption fails
+                
                 client_key.delete(0, tk.END)
-                client_key.insert(0, settings.client_key)
+                client_key.insert(0, settings.client_key or "")
+                
+                # Update status label to inform about decryption issues
+                if not settings.password or not self.security.decrypt(settings.password):
+                    status_label.config(
+                        text="Password decryption failed. Please enter a new password.",
+                        foreground="orange"
+                    )
 
             def check_connection():
-                """Check connectivity to the cloud API and update UI."""
                 url = cloud_api_url.get().strip()
                 user = username.get().strip()
                 pwd = password.get().strip()
                 key = client_key.get().strip()
-                if not url or not user or not pwd or not key:
+                if not all([url, user, pwd, key]):
                     status_label.config(text="Please fill all fields", foreground="red")
                     return
                 try:
-                    # Attempt a GET request to the API URL
                     resp = requests.get(url, auth=(user, pwd), timeout=5)
                     if resp.ok:
                         status_label.config(text="Connection successful", foreground="green")
-                        self.notification_service.notify(
-                            "Connection Test", "Connection successful", "info"
-                        )
+                        # Use logging instead of notification which might cause issues
+                        self.logger.info("Connection test successful")
                     else:
                         status_label.config(
                             text=f"Connection failed: {resp.status_code}",
-                            foreground="red",
+                            foreground="red"
                         )
-                        self.notification_service.notify(
-                            "Connection Test", f"Failed with status {resp.status_code}", "error"
-                        )
-                except requests.RequestException as e:
+                        self.logger.warning(f"Connection test failed: {resp.status_code}")
+                except Exception as e:
                     status_label.config(text=f"Error: {e}", foreground="red")
-                    self.notification_service.notify(
-                        "Connection Test", f"Error: {e}", "error"
-                    )
-
-            # Buttons frame
-            btn_frame = ttk.Frame(frame)
-            btn_frame.pack(pady=10)
-
-            # Check Connection button
-            ttk.Button(btn_frame, text="Check Connection", command=check_connection).grid(
-                row=0, column=0, padx=5
-            )
+                    self.logger.error(f"Connection test error: {e}")
 
             def save_settings():
-                """Save settings and initialize schedules if needed."""
                 try:
-                    settings_data = {
-                        "cloud_api_url": cloud_api_url.get().strip(),
-                        "username": username.get().strip(),
-                        "password": self.security.encrypt(password.get().strip()),
-                        "client_key": client_key.get().strip(),
+                    data = {
+                        'cloud_api_url': cloud_api_url.get().strip(),
+                        'username': username.get().strip(),
+                        'password': self.security.encrypt(password.get().strip()),
+                        'client_key': client_key.get().strip(),
                     }
-                    self.settings_repo.save_settings(settings_data)
-
-                    # Initialize default schedules if none exist
+                    self.settings_repo.save_settings(data)
                     if not self.schedule_repo.get_all():
                         self.schedule_repo.model.create(
-                            task_type="pull",
-                            schedule_time="00:00",
-                            enabled=True,
-                            last_run=None,
+                            task_type='pull', schedule_time='00:00', enabled=True
                         )
                         self.schedule_repo.model.create(
-                            task_type="push",
-                            schedule_time="00:30",
-                            enabled=True,
-                            last_run=None,
+                            task_type='push', schedule_time='00:30', enabled=True
                         )
-
-                    # Update services
                     self.app.api_client.update_settings()
                     self.app.scheduler.update_settings()
-
-                    self.notification_service.notify(
-                        "Success", "Settings saved successfully", "info"
-                    )
+                    # Use status label instead of notification for confirmation
+                    status_label.config(text="Settings saved successfully", foreground="green")
                     self.logger.info("Settings saved successfully")
+
                     if first_run:
                         self.app.dashboard_gui.show_dashboard()
                     settings_win.destroy()
                 except Exception as e:
-                    self.logger.error(f"Failed to save settings: {e}")
-                    self.notification_service.notify(
-                        "Error", f"Failed to save settings: {str(e)}", "error"
+                    status_label.config(text=f"Save error: {e}", foreground="red")
+                    self.logger.error(f"Save failed: {e}")
+
+            # In settings.py, add a reset button
+
+            # Buttons layout
+            button_frame = ttk.Frame(frame)
+            button_frame.grid(
+                row=len(labels) + 1,
+                column=0,
+                columnspan=2,
+                sticky='ew',
+                pady=15
+            )
+
+            button_frame.grid_columnconfigure(0, weight=1)
+            button_frame.grid_columnconfigure(1, weight=1)
+            button_frame.grid_columnconfigure(2, weight=1)
+
+            # Reset button function
+            def reset_settings():
+                try:
+                    cloud_api_url.delete(0, tk.END)
+                    username.delete(0, tk.END)
+                    password.delete(0, tk.END)
+                    client_key.delete(0, tk.END)
+                    status_label.config(
+                        text="Settings reset. Enter new values and save.",
+                        foreground="blue"
+                    )
+                    self.logger.info("Settings form reset")
+                except Exception as e:
+                    self.logger.error(f"Failed to reset settings form: {e}")
+                    status_label.config(
+                        text=f"Error: {str(e)}",
+                        foreground="red"
                     )
 
-            # Save button
-            ttk.Button(btn_frame, text="Save", command=save_settings).grid(
-                row=0, column=1, padx=5
+            # Add the buttons
+            reset_btn = ttk.Button(
+                button_frame,
+                text="Reset",
+                command=reset_settings,
+                padding=8
             )
+            reset_btn.grid(row=0, column=0, padx=5, pady=5, sticky='ew')
 
-            # Prevent closing during first run
+            check_btn = ttk.Button(
+                button_frame,
+                text="Check Connection",
+                command=check_connection,
+                padding=8
+            )
+            check_btn.grid(row=0, column=1, padx=5, pady=5, sticky='ew')
+
+            save_btn = ttk.Button(
+                button_frame,
+                text="Save Settings",
+                command=save_settings,
+                padding=8
+            )
+            save_btn.grid(row=0, column=2, padx=5, pady=5, sticky='ew')
+
+            button_frame.update()
+
+            # Prevent window close on first run
             if first_run:
-                settings_win.protocol("WM_DELETE_WINDOW", lambda: self.app.exit_app())
+                settings_win.protocol(
+                    "WM_DELETE_WINDOW",
+                    lambda: self.app.exit_app()
+                )
+
+            # Force update
+            settings_win.update_idletasks()
 
         except Exception as e:
-            self.logger.error(f"Error displaying settings window: {e}")
-            self.notification_service.notify(
-                "Error", f"Failed to display settings: {str(e)}", "error"
-            )
+            self.logger.error(f"Failed to open settings window: {e}")
+            # Try to show a simple message if the main window fails
+            try:
+                import tkinter.messagebox as messagebox
+                messagebox.showerror("Error", f"Failed to open settings: {e}")
+            except Exception as msg_err:
+                self.logger.error(f"Also failed to show error message: {msg_err}")
