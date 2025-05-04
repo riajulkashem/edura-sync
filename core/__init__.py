@@ -1,5 +1,3 @@
-from main import PrimeSync
-from services import DeviceManager
 from .config import Config
 from .security import SecurityManager
 from .exceptions import (
@@ -18,9 +16,10 @@ __all__ = [
     "SchedulerError",
     "DeviceConnectionError",
     "ConfigurationError",
-    "DeviceManager",
-    "PrimeSync",
     "APICallError",
     "DatabaseError",
     "NotificationError",
+    "SecurityError",
+    "Config",
+    "SecurityManager",
 ]

@@ -11,7 +11,9 @@
 .idea/**/usage.statistics.xml
 .idea/**/dictionaries
 .idea/
-
+primesync.db
+primesync.db-shm
+primesync.db-wal
 # AWS User-specific
 .idea/**/aws.xml
 

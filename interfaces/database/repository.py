@@ -1,97 +1,186 @@
-# interfaces/database/repository.py
-from typing import List, Optional
-from datetime import datetime
-from peewee import ModelSelect
-from .models import Device, User, Attendance, Settings, Schedule, db
-
+import logging
+from peewee import *
+from interfaces.database.models import db, Settings, Device, User, Attendance, Schedule
 
 class BaseRepository:
-    """Base repository class for database operations."""
-
-    def __init__(self, model):
-        self.model = model
-
-    def get_all(self) -> List:
-        """Retrieve all records."""
-        with db.atomic():
-            return list(self.model.select())
-
-    def get_by_id(self, id: int) -> Optional[ModelSelect]:
-        """Retrieve a record by ID."""
-        with db.atomic():
-            return self.model.get_or_none(id=id)
-
-
-class DeviceRepository(BaseRepository):
-    """Repository for Device model operations."""
-
+    """Base repository with common functionality for all repositories."""
+    
     def __init__(self):
-        super().__init__(Device)
-
-    def count_online(self) -> int:
-        """Count online devices."""
-        with db.atomic():
-            return self.model.select().where(self.model.status == "Online").count()
-
-    def count_total(self) -> int:
-        """Count total devices."""
-        with db.atomic():
-            return self.model.select().count()
-
-
-class UserRepository(BaseRepository):
-    """Repository for User model operations."""
-
-    def __init__(self):
-        super().__init__(User)
-
-    def count_total(self) -> int:
-        """Count total users."""
-        with db.atomic():
-            return self.model.select().count()
-
-
-class AttendanceRepository(BaseRepository):
-    """Repository for Attendance model operations."""
-
-    def __init__(self):
-        super().__init__(Attendance)
+        """Initialize the repository with a logger."""
+        self.logger = logging.getLogger(self.__class__.__name__)
 
 
 class SettingsRepository(BaseRepository):
-    """Repository for Settings model operations."""
+    """Repository for settings data."""
 
     def __init__(self):
-        super().__init__(Settings)
+        """Initialize with Settings model."""
+        super().__init__()
+        self.model = Settings
 
-    def get_settings(self) -> Optional[Settings]:
-        """Retrieve the first settings record."""
-        with db.atomic():
-            return self.model.select().first()
+    def get_settings(self):
+        """Get application settings."""
+        try:
+            with db.atomic():
+                return self.model.get_or_none(id=1)
+        except Exception as e:
+            self.logger.error(f"Failed to retrieve settings: {e}")
+            return None
 
-    def save_settings(self, data: dict) -> None:
-        """Save or update settings."""
-        with db.atomic():
-            if self.model.select().exists():
-                self.model.delete().execute()
-            self.model.create(**data)
+    def save_settings(self, data):
+        """Save application settings."""
+        print(f'save settings called: {data}')
+        try:
+            with db.atomic():
+                try:
+                    # Attempt to retrieve the settings object with id=1
+                    settings = self.model.get(id=1)
+                    print(f'retrieved existing settings: {settings}')
+                except self.model.DoesNotExist:
+                    # If it doesn’t exist, create a new object with id=1 and the provided data
+                    settings = self.model.create(id=1, **data)
+                    print(f'created new settings: {settings}')
+                else:
+                    # If it exists, update its fields with the provided data
+                    for key, value in data.items():
+                        if hasattr(settings, key):
+                            setattr(settings, key, value)
+                    settings.save()
+                    print(f'updated existing settings: {settings}')
+            print(f'after saved settings: {settings}')
+            return settings
+        except Exception as e:
+            self.logger.error(f"Failed to save settings: {e}")
+            raise
 
+class DeviceRepository(BaseRepository):
+    """Repository for device data."""
+    
+    def __init__(self):
+        """Initialize with Device model."""
+        super().__init__()
+        self.model = Device
+    
+    def get_all(self):
+        """Get all devices."""
+        try:
+            return list(self.model.select())
+        except Exception as e:
+            self.logger.error(f"Failed to get all devices: {e}")
+            return []
+    
+    def get_by_id(self, device_id):
+        """Get device by ID."""
+        try:
+            return self.model.get_or_none(self.model.id == device_id)
+        except Exception as e:
+            self.logger.error(f"Failed to get device by ID {device_id}: {e}")
+            return None
+    
+    def count_online(self):
+        """Count online devices."""
+        try:
+            return self.model.select().where(self.model.status == "Online").count()
+        except Exception as e:
+            self.logger.error(f"Failed to count online devices: {e}")
+            return 0
+    
+    def count_total(self):
+        """Count total devices."""
+        try:
+            return self.model.select().count()
+        except Exception as e:
+            self.logger.error(f"Failed to count total devices: {e}")
+            return 0
+
+class UserRepository(BaseRepository):
+    """Repository for user data."""
+    
+    def __init__(self):
+        """Initialize with User model."""
+        super().__init__()
+        self.model = User
+    
+    def get_all(self):
+        """Get all users."""
+        try:
+            return list(self.model.select())
+        except Exception as e:
+            self.logger.error(f"Failed to get all users: {e}")
+            return []
+    
+    def get_by_id(self, user_id):
+        """Get user by ID."""
+        try:
+            return self.model.get_or_none(self.model.user_id == user_id)
+        except Exception as e:
+            self.logger.error(f"Failed to get user by ID {user_id}: {e}")
+            return None
+    
+    def count_total(self):
+        """Count total users."""
+        try:
+            return self.model.select().count()
+        except Exception as e:
+            self.logger.error(f"Failed to count total users: {e}")
+            return 0
+
+class AttendanceRepository(BaseRepository):
+    """Repository for attendance data."""
+    
+    def __init__(self):
+        """Initialize with Attendance model."""
+        super().__init__()
+        self.model = Attendance
+    
+    def get_all(self):
+        """Get all attendance records."""
+        try:
+            return list(self.model.select().join(User))
+        except Exception as e:
+            self.logger.error(f"Failed to get all attendance records: {e}")
+            return []
 
 class ScheduleRepository(BaseRepository):
-    """Repository for Schedule model operations."""
-
+    """Repository for schedule data."""
+    
     def __init__(self):
-        super().__init__(Schedule)
-
-    def get_by_task_type(self, task_type: str) -> Optional[Schedule]:
-        """Retrieve schedule by task type."""
-        with db.atomic():
-            return self.model.get_or_none(task_type=task_type)
-
-    def update_last_run(self, schedule_id: int, last_run: datetime) -> None:
-        """Update the last run time for a schedule."""
-        with db.atomic():
-            schedule = self.model.get_or_none(id=schedule_id)
-            if schedule:
-                schedule.last_run = last_run
-                schedule.save()
+        """Initialize with Schedule model."""
+        super().__init__()
+        self.model = Schedule
+    
+    def get_all(self):
+        """Get all schedules."""
+        try:
+            return list(self.model.select())
+        except Exception as e:
+            self.logger.error(f"Failed to get all schedules: {e}")
+            return []
+    
+    def get_by_task_type(self, task_type):
+        """Get schedule by task type."""
+        try:
+            return self.model.get_or_none(self.model.task_type == task_type)
+        except Exception as e:
+            self.logger.error(f"Failed to get schedule by task type {task_type}: {e}")
+            return None
+    
+    def get_enabled(self):
+        """Get all enabled schedules."""
+        try:
+            return list(self.model.select().where(self.model.enabled == True))
+        except Exception as e:
+            self.logger.error(f"Failed to get enabled schedules: {e}")
+            return []
+    
+    def update_last_run(self, schedule_id, timestamp):
+        """Update the last_run time for a schedule."""
+        try:
+            self.model.update(last_run=timestamp).where(
+                self.model.id == schedule_id
+            ).execute()
+            self.logger.debug(f"Updated last_run for schedule {schedule_id}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to update last_run for schedule {schedule_id}: {e}")
+            return False

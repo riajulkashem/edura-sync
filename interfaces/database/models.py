@@ -1,8 +1,13 @@
 # interfaces/database/models.py
+import os
 from datetime import datetime
+import logging
+from pathlib import Path
 
 from peewee import *
 
+# Create a logger
+logger = logging.getLogger(__name__)
 
 class DatabaseFactory:
     """Factory for creating and configuring the database connection."""
@@ -19,10 +24,30 @@ class DatabaseFactory:
             SqliteDatabase: Configured database instance.
         """
         if cls._db is None:
-            cls._db = SqliteDatabase(db_path)
+            logger.info(f"Initializing database with path: {db_path}")
+            
+            # If path is relative, use current directory
+            if not os.path.isabs(db_path):
+                # Get the project root directory (current working directory)
+                project_dir = Path.cwd()
+                db_path = str(project_dir / db_path)
+                logger.info(f"Using absolute path: {db_path}")
+            
+            # Ensure parent directory exists
+            db_dir = os.path.dirname(db_path)
+            if db_dir:  # Only create directory if there is a path
+                os.makedirs(db_dir, exist_ok=True)
+                logger.info(f"Ensured database directory exists: {db_dir}")
+            
+            cls._db = SqliteDatabase(db_path, pragmas={
+                'journal_mode': 'wal',  # Write-Ahead Logging for better concurrency
+                'foreign_keys': 1,      # Enable foreign key support
+                'cache_size': -1024*64  # 64MB cache size
+            })
+            logger.info(f"Database created at {db_path}")
         return cls._db
 
-
+# Initialize with a default path - this will be replaced in main.py
 db = DatabaseFactory.get_database("primesync.db")
 
 
@@ -103,7 +128,8 @@ class Settings(BaseModel):
     cloud_api_url = CharField(max_length=255)
     username = CharField(max_length=100)
     password = CharField(max_length=256)  # Encrypted
-    client_key = CharField(max_length=100)
+    institute_id = CharField(max_length=100)  # Changed from client_key
+    auth_token = CharField(max_length=512, null=True)  # To store the authentication token
 
     class Meta:
         table_name = "settings"

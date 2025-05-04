@@ -1,4 +1,3 @@
-# main.py
 import logging
 import sys
 import threading
@@ -29,6 +28,11 @@ from services.api_client import APIClient
 from services.device_manager import DeviceManager
 from services.notification import NotificationService
 from services.scheduler import TaskScheduler
+
+def handle_exception(exc_type, exc_value, exc_traceback):
+    """Global exception handler to log unhandled exceptions"""
+    logging.error("Unhandled exception", exc_info=(exc_type, exc_value, exc_traceback))
+    return sys.__excepthook__(exc_type, exc_value, exc_traceback)
 
 
 class PrimeSync:
@@ -76,6 +80,8 @@ class PrimeSync:
             self.attendance_repo,
             self.schedule_repo,
         )
+        
+        # Initialize dummy scheduler (no actual scheduling)
         self.scheduler = TaskScheduler(
             self.device_manager,
             self.api_client,
@@ -97,6 +103,8 @@ class PrimeSync:
             self.schedule_repo,
             self.notification_service,
         )
+
+        # Initialize system tray
         self.tray = SystemTray(
             self,
             self.config,
@@ -108,7 +116,7 @@ class PrimeSync:
             self.notification_service,
         )
 
-        # Load settings and start scheduler
+        # Load settings
         self._load_settings()
         self._add_to_startup()
 
@@ -119,7 +127,7 @@ class PrimeSync:
                 self.settings_gui.show_settings(first_run=True)
             else:
                 self.api_client.update_settings()
-                self.scheduler.update_settings()
+                # We're not calling scheduler.update_settings() since scheduler is disabled
             self.logger.info("Settings loaded successfully")
         except Exception as e:
             self.logger.error(f"Error loading settings: {e}")
@@ -151,6 +159,7 @@ class PrimeSync:
         self.logger.info("Initiating application shutdown")
 
         try:
+            # We still call scheduler.shutdown() but it's now a dummy method
             self.scheduler.shutdown()
             self.tray.stop()
             if not db.is_closed():
@@ -165,15 +174,29 @@ class PrimeSync:
 
 
 if __name__ == "__main__":
+    # Set up logging
     logging.basicConfig(
         filename=Config().LOG_FILE,
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",
         filemode="a",
     )
+
+    # Set up global exception handler
+    sys.excepthook = handle_exception
+
     try:
         app = PrimeSync()
         app.run()
     except Exception as e:
         logging.critical(f"Fatal error starting application: {e}")
+
+        # Try to show an error dialog
+        try:
+            import tkinter.messagebox as messagebox
+
+            messagebox.showerror("PrimeSync Error", f"Fatal error: {e}")
+        except:
+            pass
+
         sys.exit(1)
