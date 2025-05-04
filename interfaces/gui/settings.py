@@ -1,7 +1,7 @@
-# interfaces/gui/settings.py
 import logging
 import tkinter as tk
 from tkinter import ttk
+import requests
 
 from PIL import Image, ImageTk
 
@@ -16,7 +16,6 @@ class SettingsGUI:
     Manages the settings GUI for the PrimeSync application.
     Allows configuration of cloud API settings and schedules.
     """
-
 
     def __init__(
         self,
@@ -51,7 +50,6 @@ class SettingsGUI:
         Args:
             window: The Tkinter window to set the icon for.
         """
-
         try:
             config = Config()
             icon_path = config.ICON_PATH
@@ -76,7 +74,7 @@ class SettingsGUI:
         try:
             settings_win = tk.Toplevel(self.root)
             settings_win.title("Settings")
-            settings_win.geometry("500x400")
+            settings_win.geometry("500x450")
             settings_win.resizable(False, False)
             self._load_icon(settings_win)
 
@@ -111,6 +109,10 @@ class SettingsGUI:
             client_key = ttk.Entry(frame, width=50)
             client_key.pack(pady=5)
 
+            # Status label for connection test
+            status_label = ttk.Label(frame, text="")
+            status_label.pack(pady=5)
+
             # Load existing settings
             settings = self.settings_repo.get_settings()
             if settings:
@@ -123,14 +125,54 @@ class SettingsGUI:
                 client_key.delete(0, tk.END)
                 client_key.insert(0, settings.client_key)
 
+            def check_connection():
+                """Check connectivity to the cloud API and update UI."""
+                url = cloud_api_url.get().strip()
+                user = username.get().strip()
+                pwd = password.get().strip()
+                key = client_key.get().strip()
+                if not url or not user or not pwd or not key:
+                    status_label.config(text="Please fill all fields", foreground="red")
+                    return
+                try:
+                    # Attempt a GET request to the API URL
+                    resp = requests.get(url, auth=(user, pwd), timeout=5)
+                    if resp.ok:
+                        status_label.config(text="Connection successful", foreground="green")
+                        self.notification_service.notify(
+                            "Connection Test", "Connection successful", "info"
+                        )
+                    else:
+                        status_label.config(
+                            text=f"Connection failed: {resp.status_code}",
+                            foreground="red",
+                        )
+                        self.notification_service.notify(
+                            "Connection Test", f"Failed with status {resp.status_code}", "error"
+                        )
+                except requests.RequestException as e:
+                    status_label.config(text=f"Error: {e}", foreground="red")
+                    self.notification_service.notify(
+                        "Connection Test", f"Error: {e}", "error"
+                    )
+
+            # Buttons frame
+            btn_frame = ttk.Frame(frame)
+            btn_frame.pack(pady=10)
+
+            # Check Connection button
+            ttk.Button(btn_frame, text="Check Connection", command=check_connection).grid(
+                row=0, column=0, padx=5
+            )
+
             def save_settings():
                 """Save settings and initialize schedules if needed."""
                 try:
                     settings_data = {
-                        "cloud_api_url": cloud_api_url.get(),
-                        "username": username.get(),
-                        "password": self.security.encrypt(password.get()),
-                        "client_key": client_key.get(),
+                        "cloud_api_url": cloud_api_url.get().strip(),
+                        "username": username.get().strip(),
+                        "password": self.security.encrypt(password.get().strip()),
+                        "client_key": client_key.get().strip(),
                     }
                     self.settings_repo.save_settings(settings_data)
 
@@ -166,8 +208,10 @@ class SettingsGUI:
                         "Error", f"Failed to save settings: {str(e)}", "error"
                     )
 
-            # Add save button
-            ttk.Button(frame, text="Save", command=save_settings).pack(pady=20)
+            # Save button
+            ttk.Button(btn_frame, text="Save", command=save_settings).grid(
+                row=0, column=1, padx=5
+            )
 
             # Prevent closing during first run
             if first_run:
