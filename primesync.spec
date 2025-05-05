@@ -1,3 +1,4 @@
+import sys
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 import os
@@ -40,6 +41,7 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# Update the EXE section to include a proper icon
 exe = EXE(
     pyz,
     a.scripts,
@@ -55,6 +57,7 @@ exe = EXE(
     icon='assets/icon.png'
 )
 
+# The COLLECT path should be simpler for Inno Setup to locate
 coll = COLLECT(
     exe,
     a.binaries,
@@ -63,7 +66,7 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='C:/Program Files/PrimeSyncTrayApp' if sys.platform == 'win32' else 'PrimeSyncTrayApp'
+    name='PrimeSyncTrayApp'
 )
 
 # Post-build step to create Start Menu shortcut on Windows

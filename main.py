@@ -137,8 +137,48 @@ class PrimeSync:
 
     def _add_to_startup(self) -> None:
         """Add application to system startup (Windows or macOS)."""
-        # Implementation similar to original, moved to a utility module in full code
-        self.logger.info("Added to system startup")
+        try:
+            import os
+            import platform
+            import sys
+        
+            if platform.system() == 'Windows':
+                # Windows autostart is handled by the installer (registry)
+                pass
+            elif platform.system() == 'Darwin':  # macOS
+                import plistlib
+            
+                # Create a macOS LaunchAgent plist file
+                home = os.path.expanduser("~")
+                launch_agents_dir = os.path.join(home, "Library/LaunchAgents")
+            
+                if not os.path.exists(launch_agents_dir):
+                    os.makedirs(launch_agents_dir)
+                
+                plist_path = os.path.join(launch_agents_dir, "com.primesync.trayapp.plist")
+            
+                if getattr(sys, 'frozen', False):
+                    # Running as compiled app
+                    executable_path = sys.executable
+                else:
+                    # Running as script
+                    executable_path = sys.executable
+                    script_path = os.path.abspath(sys.argv[0])
+                    executable_path = f"{executable_path} {script_path}"
+                
+                plist_content = {
+                    'Label': 'com.primesync.trayapp',
+                    'ProgramArguments': [executable_path],
+                    'RunAtLoad': True,
+                    'KeepAlive': False,
+                }
+            
+                with open(plist_path, 'wb') as f:
+                    plistlib.dump(plist_content, f)
+                
+            self.logger.info("Added to system startup")
+        except Exception as e:
+            self.logger.error(f"Failed to add to startup: {e}")
 
     def run(self) -> None:
         """Start the application, running the system tray and main loop."""

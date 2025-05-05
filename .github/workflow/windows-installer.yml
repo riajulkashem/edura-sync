@@ -1,0 +1,140 @@
+
+name: Build Windows Installer
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:  # Allows manual triggering
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller inno-setup-tools
+
+    - name: Create version file
+      run: |
+        $buildNum = "${{ github.run_number }}"
+        $version = "1.0.$buildNum"
+        echo "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+        echo "version = '$version'" | Out-File -FilePath ./core/version.py -Encoding utf8
+
+    - name: Build with PyInstaller
+      run: |
+        pyinstaller --clean --noconfirm primesync.spec
+
+    - name: Create Inno Setup installer
+      run: |
+        echo "Creating Inno Setup script..."
+        $innoScript = @"
+        #define MyAppName "PrimeSync"
+        #define MyAppVersion "${{ env.APP_VERSION }}"
+        #define MyAppPublisher "Your Company"
+        #define MyAppURL "https://github.com/yourusername/prime-sync"
+        #define MyAppExeName "PrimeSyncTrayApp.exe"
+
+        [Setup]
+        AppId={{EA3FCF1E-0EB9-4DEA-AB7A-ADE3D2B7AAF8}
+        AppName={#MyAppName}
+        AppVersion={#MyAppVersion}
+        AppPublisher={#MyAppPublisher}
+        AppPublisherURL={#MyAppURL}
+        AppSupportURL={#MyAppURL}
+        AppUpdatesURL={#MyAppURL}
+        DefaultDirName={autopf}\{#MyAppName}
+        DefaultGroupName={#MyAppName}
+        DisableProgramGroupPage=yes
+        LicenseFile=LICENSE
+        OutputDir=installer
+        OutputBaseFilename={#MyAppName}-Setup-{#MyAppVersion}
+        SetupIconFile=assets\icon.ico
+        Compression=lzma
+        SolidCompression=yes
+        WizardStyle=modern
+        PrivilegesRequired=admin
+
+        [Languages]
+        Name: "english"; MessagesFile: "compiler:Default.isl"
+
+        [Tasks]
+        Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+        Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked; OnlyBelowVersion: 6.1; Check: not IsAdminInstallMode
+
+        [Files]
+        Source: "dist\PrimeSyncTrayApp\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+        Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
+
+        [Icons]
+        Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+        Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
+        Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+        Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: quicklaunchicon
+
+        [Run]
+        Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+
+        [Registry]
+        Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "PrimeSync"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue
+        "@
+        
+        $innoScript | Out-File -FilePath ./installer.iss -Encoding utf8
+        
+        # Create LICENSE file if it doesn't exist (required by Inno Setup)
+        if (-not (Test-Path LICENSE)) {
+          "MIT License - See README.md for details" | Out-File -FilePath LICENSE -Encoding utf8
+        }
+        
+        # Convert PNG to ICO if needed
+        if (-not (Test-Path assets/icon.ico)) {
+          mkdir -Force assets
+          pip install pillow
+          python -c "from PIL import Image; img = Image.open('assets/icon.png'); img.save('assets/icon.ico')"
+        }
+        
+        # Run Inno Setup compiler
+        mkdir -Force installer
+        & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' installer.iss
+
+    - name: Upload installer artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: PrimeSync-Windows-Installer
+        path: installer/*.exe
+
+    - name: Create Release
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: v${{ env.APP_VERSION }}
+        release_name: Release v${{ env.APP_VERSION }}
+        draft: false
+        prerelease: false
+
+    - name: Upload Release Asset
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./installer/PrimeSync-Setup-${{ env.APP_VERSION }}.exe
+        asset_name: PrimeSync-Setup-${{ env.APP_VERSION }}.exe
+        asset_content_type: application/octet-stream
