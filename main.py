@@ -2,6 +2,7 @@ import logging
 import sys
 import threading
 import tkinter as tk
+from pathlib import Path
 
 from core.config import Config
 from core.constants import LOG_MESSAGES, DEFAULT_SETTING
@@ -241,6 +242,11 @@ class PrimeSync:
 
 
 if __name__ == "__main__":
+    # Create logs directory if it doesn't exist
+    logs_dir = Path("logs")
+    logs_dir.mkdir(exist_ok=True)
+
+
     # Setup logging
     logging.basicConfig(
         level=logging.INFO,

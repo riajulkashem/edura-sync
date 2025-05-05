@@ -32,8 +32,6 @@ a = Analysis(
     binaries=[],
     datas=[
         ('assets/icon.png', 'assets'),
-        ('logs', 'logs'),
-        ('data', 'data')
     ] + zk_data,
     hiddenimports=hiddenimports,
     hookspath=[],
