@@ -1,5 +1,4 @@
-
-name: Build Windows Installer
+name: Build PrimeSync Windows Installer
 
 on:
   push:
@@ -18,7 +17,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.10'
+        python-version: '3.13'
         cache: 'pip'
 
     - name: Install dependencies
@@ -44,8 +43,8 @@ jobs:
         $innoScript = @"
         #define MyAppName "PrimeSync"
         #define MyAppVersion "${{ env.APP_VERSION }}"
-        #define MyAppPublisher "Your Company"
-        #define MyAppURL "https://github.com/yourusername/prime-sync"
+        #define MyAppPublisher "Riajul Kashem"
+        #define MyAppURL "https://github.com/riajulkashem/prime-sync"
         #define MyAppExeName "PrimeSyncTrayApp.exe"
 
         [Setup]
@@ -78,6 +77,11 @@ jobs:
         [Files]
         Source: "dist\PrimeSyncTrayApp\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
         Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
+        Source: "CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
+
+        [Dirs]
+        Name: "{app}\data"; Permissions: users-modify
+        Name: "{app}\logs"; Permissions: users-modify
 
         [Icons]
         Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -96,7 +100,7 @@ jobs:
         
         # Create LICENSE file if it doesn't exist (required by Inno Setup)
         if (-not (Test-Path LICENSE)) {
-          "MIT License - See README.md for details" | Out-File -FilePath LICENSE -Encoding utf8
+          "MIT License - Attendance synchronization system by Riajul Kashem" | Out-File -FilePath LICENSE -Encoding utf8
         }
         
         # Convert PNG to ICO if needed
@@ -124,9 +128,17 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         tag_name: v${{ env.APP_VERSION }}
-        release_name: Release v${{ env.APP_VERSION }}
+        release_name: PrimeSync v${{ env.APP_VERSION }}
         draft: false
         prerelease: false
+        body: |
+          PrimeSync - Attendance synchronization system
+          
+          ## What's New
+          - See CHANGELOG.md for details
+          
+          ## Installation
+          Download and run the installer. The application will start automatically after installation.
 
     - name: Upload Release Asset
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'

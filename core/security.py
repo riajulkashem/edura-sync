@@ -116,22 +116,3 @@ class SecurityManager:
                 self.logger.debug("Authentication token saved to database")
         except Exception as e:
             self.logger.error(f"Failed to save authentication token: {e}")
-
-    def get_token_from_settings(self, settings_repo) -> str:
-        """
-        Get the authentication token from settings database.
-
-        Args:
-            settings_repo: Repository for settings
-
-        Returns:
-            str: The decrypted authentication token or empty string if not found
-        """
-        try:
-            settings = settings_repo.get_settings()
-            if settings and settings.auth_token:
-                return self.decrypt(settings.auth_token)
-            return ""
-        except Exception as e:
-            self.logger.error(f"Failed to get authentication token: {e}")
-            return ""

@@ -20,6 +20,8 @@ class Repository:
             return self.model.get(**filters)
         except DoesNotExist:
             return None
+        except MultipleObjectsReturned:
+            return None  # Return None if multiple records are found
         except Exception as e:
             print(e)
             return None
@@ -57,9 +59,54 @@ class Repository:
             obj.save()
         return obj
 
+    def update_bulk(self, data, ids=None, **filters):
+        """
+        Update multiple records matching filters or IDs with the provided data.
+        Args:
+            data: Dictionary of field-value pairs to update.
+            ids: Optional list of record IDs to update.
+            **filters: Optional field-value pairs to filter records.
+        Returns:
+            Number of rows updated.
+        """
+        if not ids and not filters:
+            raise ValueError("Either 'ids' or 'filters' must be provided for bulk update")
+
+        query = self.model.update(**data)
+        if ids:
+            query = query.where(self.model.id.in_(ids))
+        elif filters:
+            for field, value in filters.items():
+                if not hasattr(self.model, field):
+                    raise ValueError(f"Field '{field}' does not exist on model {self.model.__name__}")
+                query = query.where(getattr(self.model, field) == value)
+
+        with db.atomic():
+            return query.execute()
+
     def delete(self, obj):
         with db.atomic():
             return obj.delete_instance()
+
+    def delete_bulk(self, **filters):
+        """
+        Delete multiple records matching the provided filters.
+        Args:
+            **filters: Field-value pairs to filter records for deletion.
+        Returns:
+            Number of rows deleted.
+        """
+        if not filters:
+            raise ValueError("Filters must be provided for bulk delete")
+
+        query = self.model.delete()
+        for field, value in filters.items():
+            if not hasattr(self.model, field):
+                raise ValueError(f"Field '{field}' does not exist on model {self.model.__name__}")
+            query = query.where(getattr(self.model, field) == value)
+
+        with db.atomic():
+            return query.execute()
 
     def count(self):
         return self.model.select().count()
@@ -83,13 +130,6 @@ class Repository:
             return self.to_dict(instance)
         return None
 
-    def get_all_as_dict(self):
-        """
-        Retrieve all records as a list of dictionaries.
-        """
-        return [self.to_dict(instance) for instance in self.get_all()]
-
-
 class DeviceRepository(Repository):
     def __init__(self):
         super().__init__(Device)
@@ -109,14 +149,16 @@ class AttendanceRepository(Repository):
         Return attendance records in a cloud-friendly dict format.
         """
         records = []
-        for att in self.model.select().where(self.model.posted == False):
+        db_records = self.filter(posted=False)
+        for att in db_records:
             if att.user and att.user.user_cloud_id:
                 records.append({
                     'user_cloud_id': att.user.user_cloud_id,
                     'user_cloud_device_id': att.user.device_cloud_id,
                     'timestamp': att.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
                     'punch': att.punch,
-                    'status': att.status
+                    'status': att.status,
+                    'user_id': att.uid,
                 })
         return records
 

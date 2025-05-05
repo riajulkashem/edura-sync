@@ -100,6 +100,12 @@ class SystemTray:
                     ),
                 ),
                 pystray.MenuItem(
+                    "Sync Device",
+                    self._run_action(
+                        self.device_manager.migrate_user_to_device, "Push User Data To Machine"
+                    ),
+                ),
+                pystray.MenuItem(
                     "Dashboard",
                     self._run_action(
                         self.dashboard_gui.show_dashboard, "Show Dashboard"

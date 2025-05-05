@@ -78,7 +78,7 @@ class DashboardGUI:
 
             # Select settings tab on first run
             if first_run:
-                notebook.select(2)
+                notebook.select(1)
 
             # Add Quit button
             quit_btn = create_button(
@@ -456,34 +456,37 @@ class DashboardGUI:
             button_frame, text="Refresh Dashboard", command=self._refresh_dashboard
         )
         refresh_button.grid(row=0, column=0, padx=5, pady=5)
+        # Cloud API buttons
+        sync_button = ttk.Button(
+            button_frame, text="Sync Data",
+            command=lambda: self._perform_action(self.api_client.sync_data, "Syncing data")
+        )
+        sync_button.grid(row=0, column=1, padx=5, pady=5)
+
+        post_cloud_button = ttk.Button(
+            button_frame, text="Post to Cloud",
+            command=lambda: self._perform_action(self.api_client.post_to_cloud, "Posting data to cloud")
+        )
+        post_cloud_button.grid(row=0, column=2, padx=5, pady=5)
 
         # Device management buttons
-        if self.device_manager:
-            check_devices_button = ttk.Button(
-                button_frame, text="Check Devices",
-                command=lambda: self._perform_action(self.device_manager.check_devices, "Checking devices")
-            )
-            check_devices_button.grid(row=0, column=1, padx=5, pady=5)
+        check_devices_button = ttk.Button(
+            button_frame, text="Check Devices",
+            command=lambda: self._perform_action(self.device_manager.check_devices, "Checking devices")
+        )
+        check_devices_button.grid(row=1, column=0, padx=5, pady=5)
 
-            pull_data_button = ttk.Button(
-                button_frame, text="Pull Attendance",
-                command=lambda: self._perform_action(self.device_manager.pull_data, "Pulling attendance data")
-            )
-            pull_data_button.grid(row=0, column=2, padx=5, pady=5)
+        pull_data_button = ttk.Button(
+            button_frame, text="Pull Attendance",
+            command=lambda: self._perform_action(self.device_manager.pull_data, "Pulling attendance data")
+        )
+        pull_data_button.grid(row=1, column=1, padx=5, pady=5)
 
-        # Cloud API buttons
-        if self.api_client:
-            sync_button = ttk.Button(
-                button_frame, text="Sync Data",
-                command=lambda: self._perform_action(self.api_client.sync_data, "Syncing data")
-            )
-            sync_button.grid(row=1, column=0, padx=5, pady=5)
-
-            post_cloud_button = ttk.Button(
-                button_frame, text="Post to Cloud",
-                command=lambda: self._perform_action(self.api_client.post_to_cloud, "Posting data to cloud")
-            )
-            post_cloud_button.grid(row=1, column=1, padx=5, pady=5)
+        sync_device = ttk.Button(
+            button_frame, text="Sync Device",
+            command=lambda: self._perform_action(self.device_manager.migrate_user_to_device, "Syncing User To Device")
+        )
+        sync_device.grid(row=1, column=2, padx=5, pady=5)
 
     def _refresh_dashboard(self):
         """Refresh dashboard content."""

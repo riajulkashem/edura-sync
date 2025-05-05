@@ -74,6 +74,7 @@ class PrimeSync:
             self.notification_service,
             self.settings_repo,
             self.attendance_repo,
+            self.device_manager
         )
 
         # Initialize GUI components

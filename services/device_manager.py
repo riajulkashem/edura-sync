@@ -6,7 +6,7 @@ from typing import List, Optional
 from zk import ZK
 
 from core.exceptions import DeviceConnectionError
-from interfaces.database.models import Device
+from interfaces.database.models import Device, User
 from interfaces.database.repository import (
     DeviceRepository,
     UserRepository,
@@ -151,9 +151,9 @@ class DeviceManager:
                     attendances = zk.get_attendance()
                     attendance_count = len(attendances)
                     for att in attendances:
-                        user = self.user_repo.get_by_id(att.user_id)
+                        user = self.user_repo.get(id=att.user_id)
                         if user:
-                            self.attendance_repo.model.create(
+                            self.attendance_repo.create(
                                 user=user,
                                 timestamp=att.timestamp,
                                 status=att.status,
@@ -182,3 +182,90 @@ class DeviceManager:
             self.notification_service.notify(
                 "Error", f"Failed to pull data: {str(e)}", "error"
             )
+
+    def migrate_user_to_device(self) -> None:
+        """Migrate users from database to connected devices."""
+        self.logger.info("Starting user migration to devices")
+        devices = Device.select()
+        users = User.filter(saved_to_device=False)
+
+        if not devices:
+            self.notification_service.notify(
+                "Sync Users",
+                "No devices found to sync users to",
+                "warning"
+            )
+            return
+
+        if not users:
+            self.notification_service.notify(
+                "Sync Users",
+                "No users found to sync to devices",
+                "warning"
+            )
+            self.logger.info(f"No new users to migrate")
+            return
+
+        total_users_migrated = 0
+        total_devices_updated = 0
+
+        for device in devices:
+            try:
+                zk = DeviceConnectionFactory.create_connection(device)
+                conn = zk.connect()
+                device_users = conn.get_users()
+                device_user_ids = [d.user_id for d in device_users]
+
+                if conn:
+                    users_migrated = 0
+                    conn.disable_device()
+
+                    # TODO: implement this when server side multi device support is added
+                    # db_users = User.filter(saved_to_device=False, device_cloud_id=device.id)
+                    db_users = User.filter(saved_to_device=False)
+
+                    for db_user in db_users:
+                        if db_user.user_id not in device_user_ids:
+                            conn.set_user(
+                                uid=int(db_user.user_id),
+                                name=db_user.name,
+                                privilege=db_user.role,
+                                password="",
+                                group_id=0,
+                                user_id=db_user.user_id,
+                            )
+                            db_user.saved_to_device = True
+                            db_user.save()
+                            users_migrated += 1
+                            self.logger.info(f"Migrated user {db_user.user_id} to device {device.ip_address}")
+
+                    conn.enable_device()
+
+                    if users_migrated > 0:
+                        total_users_migrated += users_migrated
+                        total_devices_updated += 1
+                        self.logger.info(f"Successfully migrated {users_migrated} users to device {device.ip_address}")
+                    else:
+                        self.logger.info(f"No new users to migrate to device {device.ip_address}")
+
+                    conn.disconnect()
+
+            except Exception as e:
+                self.logger.error(f"Failed to sync users to device {device.ip_address}: {e}")
+
+        # Provide user feedback through notification
+        if total_users_migrated > 0:
+            self.notification_service.notify(
+                "Users Synced",
+                f"Successfully migrated {total_users_migrated} users to {total_devices_updated} devices",
+                "info"
+            )
+        else:
+            self.notification_service.notify(
+                "Sync Complete",
+                "No new users needed to be synced to devices",
+                "info"
+            )
+
+        self.logger.info(
+            f"User migration completed: {total_users_migrated} users migrated to {total_devices_updated} devices")

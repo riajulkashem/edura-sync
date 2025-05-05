@@ -68,7 +68,6 @@ class Device(BaseModel):
     device_model = CharField(max_length=50)
     status = CharField(max_length=20, default=DEVICE_DEFAULTS["STATUS"])
     created_at = DateTimeField(default=datetime.now)
-    device_cloud_id = IntegerField(null=True, help_text="Link to device record in cloud")
 
     class Meta:
         table_name = TABLE_NAMES["DEVICES"]
