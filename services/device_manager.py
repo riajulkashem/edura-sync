@@ -11,7 +11,6 @@ from interfaces.database.repository import (
     DeviceRepository,
     UserRepository,
     AttendanceRepository,
-    ScheduleRepository,
 )
 from services.notification import NotificationService
 
@@ -65,7 +64,6 @@ class DeviceManager:
         device_repo: DeviceRepository,
         user_repo: UserRepository,
         attendance_repo: AttendanceRepository,
-        schedule_repo: ScheduleRepository,
     ):
         """
         Initialize the device manager with dependencies.
@@ -74,13 +72,11 @@ class DeviceManager:
             device_repo: Repository for device data.
             user_repo: Repository for user data.
             attendance_repo: Repository for attendance data.
-            schedule_repo: Repository for schedule data.
         """
         self.notification_service = notification_service
         self.device_repo = device_repo
         self.user_repo = user_repo
         self.attendance_repo = attendance_repo
-        self.schedule_repo = schedule_repo
         self.logger = logging.getLogger(__name__)
         self.logger.info("DeviceManager initialized")
 
@@ -176,12 +172,6 @@ class DeviceManager:
                         f"Failed to pull data from device {device.ip_address}: {e}"
                     )
                     continue
-
-            # Update pull schedule last run time
-            pull_schedule = self.schedule_repo.get_by_task_type("pull")
-            if pull_schedule:
-                self.schedule_repo.update_last_run(pull_schedule.id, datetime.now())
-                self.logger.info("Updated pull schedule last_run time")
 
             self.logger.info("Data pull completed successfully")
             self.notification_service.notify(

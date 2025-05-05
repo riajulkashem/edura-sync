@@ -3,12 +3,15 @@ from datetime import datetime
 
 import requests
 
+from core.constants import (
+    API_ENDPOINTS,
+    STATUS_MESSAGES
+)
 from core.security import SecurityManager
 from interfaces.database.models import db
 from interfaces.database.repository import (
     AttendanceRepository,
     SettingsRepository,
-    ScheduleRepository,
 )
 from services.notification import NotificationService
 
@@ -20,12 +23,11 @@ class APIClient:
     """
 
     def __init__(
-        self,
-        security: SecurityManager,
-        notification_service: NotificationService,
-        settings_repo: SettingsRepository,
-        attendance_repo: AttendanceRepository,
-        schedule_repo: ScheduleRepository,
+            self,
+            security: SecurityManager,
+            notification_service: NotificationService,
+            settings_repo: SettingsRepository,
+            attendance_repo: AttendanceRepository,
     ):
         """
         Initialize the API client with injected dependencies.
@@ -34,19 +36,14 @@ class APIClient:
             notification_service: Service for sending notifications.
             settings_repo: Repository for settings data.
             attendance_repo: Repository for attendance data.
-            schedule_repo: Repository for schedule data.
         """
         self.logger = logging.getLogger(__name__)
         self.security = security
         self.notification_service = notification_service
         self.settings_repo = settings_repo
         self.attendance_repo = attendance_repo
-        self.schedule_repo = schedule_repo
         self.settings = None
         self._load_settings()
-        self.sync_url = '/api/sync/'
-        self.token_url = '/api/token/'
-        self.attendance_url = '/api/attendance/'
 
     def _load_settings(self) -> None:
         """Load settings from the repository."""
@@ -65,9 +62,9 @@ class APIClient:
         """Post attendance data to the cloud API."""
         self.logger.info("Starting data post to cloud API")
         if not self.settings:
-            self.logger.error("Settings not configured")
+            self.logger.error(STATUS_MESSAGES['SETTINGS_NOT_FOUND'])
             self.notification_service.notify(
-                "Error", "Settings not configured", "error"
+                "Error", STATUS_MESSAGES['SETTINGS_NOT_FOUND'], "error"
             )
             return
 
@@ -96,7 +93,7 @@ class APIClient:
 
             # First, try to get a token (for Django REST framework)
             auth_token = None
-            token_url = f"{url}{self.token_url}"
+            token_url = f"{url}{API_ENDPOINTS['TOKEN']}"
 
             try:
                 token_response = requests.post(
@@ -122,7 +119,7 @@ class APIClient:
                 headers["Authorization"] = f"Token {auth_token}"
 
                 # Send data to cloud using token auth
-                attendance_url = f"{url}{self.attendance_url}"
+                attendance_url = f"{url}{API_ENDPOINTS['ATTENDANCE']}"
 
                 response = requests.post(
                     attendance_url,
@@ -140,12 +137,6 @@ class APIClient:
                 )
 
             response.raise_for_status()
-
-            # Update schedule last run time
-            push_schedule = self.schedule_repo.get_by_task_type("push")
-            if push_schedule:
-                self.schedule_repo.update_last_run(push_schedule.id, datetime.now())
-                self.logger.info("Updated push schedule last_run time")
 
             self.logger.info(f"Data posted to cloud successfully: {data_count} records")
             self.notification_service.notify(
@@ -168,9 +159,9 @@ class APIClient:
         """
         self.logger.info("Starting data sync from cloud API")
         if not self.settings:
-            self.logger.error("Settings not configured")
+            self.logger.error(STATUS_MESSAGES['SETTINGS_NOT_FOUND'])
             self.notification_service.notify(
-                "Error", "Settings not configured", "error"
+                "Error", STATUS_MESSAGES['SETTINGS_NOT_FOUND'], "error"
             )
             return False
 
@@ -183,19 +174,19 @@ class APIClient:
             if not auth_token:
                 username = self.settings.username
                 password = self.security.decrypt(self.settings.password)
-                
-                token_url = f'{url}{self.token_url}'
+
+                token_url = f'{url}{API_ENDPOINTS["TOKEN"]}'
                 token_response = requests.post(
                     token_url,
                     json={"username": username, "password": password},
                     headers={"Content-Type": "application/json"},
                     timeout=10
                 )
-                
+
                 if token_response.status_code == 200:
                     token_data = token_response.json()
                     auth_token = token_data.get('token') or token_data.get('access')
-                    
+
                     # Save the token for future use
                     if auth_token:
                         self.security.save_token_to_settings(auth_token, self.settings_repo)
@@ -207,20 +198,20 @@ class APIClient:
                         "Sync Error", "Authentication failed", "error"
                     )
                     return False
-            
+
             # Create headers with token
             headers = {
                 "Content-Type": "application/json",
                 "Authorization": f"Token {auth_token}"
             }
-            
+
             # Call the sync endpoint
-            sync_url = f'{url}{self.sync_url}'
+            sync_url = f'{url}{API_ENDPOINTS["SYNC"]}'
             if "?" in sync_url:
                 sync_url += f"&institute={institute_id}"
             else:
                 sync_url = f"{sync_url.rstrip('/')}?institute={institute_id}"
-                
+
             self.logger.info(f"Calling sync endpoint: {sync_url}")
             print(f'requesting sync data from {sync_url}...')
             sync_response = requests.get(
@@ -233,26 +224,26 @@ class APIClient:
             if sync_response.status_code != 200:
                 self.logger.error(f"Sync failed: HTTP {sync_response.status_code}")
                 self.notification_service.notify(
-                    "Sync Error", 
-                    f"Failed to retrieve data: HTTP {sync_response.status_code}", 
+                    "Sync Error",
+                    f"Failed to retrieve data: HTTP {sync_response.status_code}",
                     "error"
                 )
                 return False
-            
+
             # Process the response data
             sync_data = sync_response.json()
             users_data = sync_data.get('users', [])
             devices_data = sync_data.get('devices', [])
-            
+
             self.logger.info(f"Received {len(users_data)} users and {len(devices_data)} devices from API")
             # Begin database transaction
             with db.atomic():
                 # Process devices first
                 from interfaces.database.models import Device
-                
+
                 devices_created = 0
                 devices_updated = 0
-                
+
                 for device_data in devices_data:
                     device, created = Device.get_or_create(
                         id=device_data.get('id'),
@@ -265,7 +256,7 @@ class APIClient:
                             'created_at': datetime.now()
                         }
                     )
-                    
+
                     if not created:
                         # Update existing device
                         device.ip_address = device_data.get('ip_address')
@@ -276,14 +267,14 @@ class APIClient:
                         devices_updated += 1
                     else:
                         devices_created += 1
-            
+
                 # Process users
                 from interfaces.database.models import User
-                
+
                 users_created = 0
                 users_updated = 0
                 zk_users_created = 0
-                
+
                 for user_data in users_data:
                     user, created = User.get_or_create(
                         user_id=user_data.get('device_user_id'),
@@ -295,7 +286,7 @@ class APIClient:
                             'updated_at': datetime.now()
                         }
                     )
-                    
+
                     if not created:
                         # Update existing user
                         user.name = user_data.get('name')
@@ -305,14 +296,14 @@ class APIClient:
                         users_updated += 1
                     else:
                         users_created += 1
-                
+
                     # Create user in ZKTeco devices
                     try:
                         self._create_user_in_devices(user)
                         zk_users_created += 1
                     except Exception as e:
                         self.logger.error(f"Failed to create user {user.name} in devices: {e}")
-            
+
             # Update sync timestamp
             from interfaces.database.repository import ScheduleRepository
             schedule_repo = ScheduleRepository()
@@ -325,23 +316,23 @@ class APIClient:
                     task_type='sync', schedule_time='12:00', enabled=True,
                     last_run=datetime.now()
                 )
-            
+
             # Log and notify about the sync results
             sync_message = (
                 f"Sync completed: {devices_created} devices created, {devices_updated} updated, "
                 f"{users_created} users created, {users_updated} updated, "
                 f"{zk_users_created} added to physical devices."
             )
-            
+
             self.logger.info(sync_message)
             self.notification_service.notify(
-                "Sync Complete", 
+                "Sync Complete",
                 sync_message,
                 "info"
             )
-            
+
             return True
-            
+
         except requests.RequestException as e:
             self.logger.error(f"Failed to sync data: {e}")
             self.notification_service.notify(
@@ -364,19 +355,19 @@ class APIClient:
         """
         from interfaces.database.models import Device
         from services.device_manager import DeviceConnectionFactory
-        
+
         devices = Device.select()
         for device in devices:
             try:
                 # Connect to the device
                 zk = DeviceConnectionFactory.create_connection(device)
                 conn = zk.connect()
-                
+
                 if conn:
                     # Check if user already exists on device
                     device_users = conn.get_users()
                     user_exists = any(u.user_id == user.user_id for u in device_users)
-                    
+
                     if not user_exists:
                         # Create the user in the device
                         conn.set_user(
@@ -388,7 +379,7 @@ class APIClient:
                             user_id=user.user_id
                         )
                         self.logger.info(f"Created user {user.name} (ID: {user.user_id}) in device {device.ip_address}")
-                    
+
                     # Disconnect from the device
                     conn.disconnect()
             except Exception as e:

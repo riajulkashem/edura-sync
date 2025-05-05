@@ -4,6 +4,7 @@ import threading
 import tkinter as tk
 
 from core.config import Config
+from core.constants import LOG_MESSAGES
 from core.security import SecurityManager
 from interfaces.database.models import (
     DatabaseFactory,
@@ -12,22 +13,18 @@ from interfaces.database.models import (
     Attendance,
     User,
     Settings,
-    Schedule,
 )
 from interfaces.database.repository import (
     DeviceRepository,
     UserRepository,
     AttendanceRepository,
     SettingsRepository,
-    ScheduleRepository,
 )
 from interfaces.gui.dashboard import DashboardGUI
-from interfaces.gui.settings import SettingsGUI
 from interfaces.gui.tray import SystemTray
 from services.api_client import APIClient
 from services.device_manager import DeviceManager
 from services.notification import NotificationService
-from services.scheduler import TaskScheduler
 
 def handle_exception(exc_type, exc_value, exc_traceback):
     """Global exception handler to log unhandled exceptions"""
@@ -51,17 +48,16 @@ class PrimeSync:
         db_instance = DatabaseFactory.get_database(str(self.config.DB_PATH))
         db_instance.connect()
         db_instance.create_tables(
-            [Device, User, Attendance, Settings, Schedule], safe=True
+            [Device, User, Attendance, Settings], safe=True
         )
         db_instance.close()
-        self.logger.info("Database initialized")
+        self.logger.info(LOG_MESSAGES["DB_INITIALIZED"])
 
         # Initialize repositories
         self.device_repo = DeviceRepository()
         self.user_repo = UserRepository()
         self.attendance_repo = AttendanceRepository()
         self.settings_repo = SettingsRepository()
-        self.schedule_repo = ScheduleRepository()
 
         # Initialize services
         self.security = SecurityManager()
@@ -71,22 +67,12 @@ class PrimeSync:
             self.device_repo,
             self.user_repo,
             self.attendance_repo,
-            self.schedule_repo,
         )
         self.api_client = APIClient(
             self.security,
             self.notification_service,
             self.settings_repo,
             self.attendance_repo,
-            self.schedule_repo,
-        )
-        
-        # Initialize dummy scheduler (no actual scheduling)
-        self.scheduler = TaskScheduler(
-            self.device_manager,
-            self.api_client,
-            self.notification_service,
-            self.schedule_repo,
         )
 
         # Initialize GUI components
@@ -95,24 +81,14 @@ class PrimeSync:
         self.dashboard_gui = DashboardGUI(
             self.root, self, self.device_repo, self.user_repo, self.notification_service
         )
-        self.settings_gui = SettingsGUI(
-            self.root,
-            self,
-            self.security,
-            self.settings_repo,
-            self.schedule_repo,
-            self.notification_service,
-        )
 
         # Initialize system tray
         self.tray = SystemTray(
             self,
             self.config,
             self.device_manager,
-            self.scheduler,
             self.api_client,
             self.dashboard_gui,
-            self.settings_gui,
             self.notification_service,
         )
 
@@ -123,15 +99,41 @@ class PrimeSync:
     def _load_settings(self) -> None:
         """Load settings and initialize services."""
         try:
-            if self.settings_repo.get_settings() is None:
-                self.settings_gui.show_settings(first_run=True)
-            else:
-                self.api_client.update_settings()
-                # We're not calling scheduler.update_settings() since scheduler is disabled
-            self.logger.info("Settings loaded successfully")
+            settings = self.settings_repo.get_settings()
+            print(f'settings: {settings}')
+            
+            if settings is None:
+                # Create default settings if none exist
+                default_settings = {
+                    'cloud_api_url': 'http://localhost:8000/api/',
+                    'username': 'admin',
+                    'password': self.security.encrypt('default_password'),
+                    'institute_id': 'default_institute',
+                }
+                self.settings_repo.save_settings(default_settings)
+                self.logger.info("Created default settings - please update them in the dashboard")
+                self.notification_service.notify(
+                    "Settings", 
+                    "Default settings created. Please update them in the dashboard.",
+                    "info"
+                )
+            
+            # Update API client with settings
+            self.api_client.update_settings()
+            
+            # Show dashboard
+            self.dashboard_gui.show_dashboard()
+            self.logger.info(LOG_MESSAGES["SETTINGS_LOADED"])
+            
         except Exception as e:
             self.logger.error(f"Error loading settings: {e}")
-            self.settings_gui.show_settings(first_run=True)
+            # Still show dashboard with error notification
+            self.dashboard_gui.show_dashboard()
+            self.notification_service.notify(
+                "Error", 
+                f"Failed to load settings: {str(e)}. Please update settings in the dashboard.",
+                "error"
+            )
 
     def _add_to_startup(self) -> None:
         """Add application to system startup (Windows or macOS)."""
@@ -140,12 +142,30 @@ class PrimeSync:
 
     def run(self) -> None:
         """Start the application, running the system tray and main loop."""
+        print('Start the application, running the system tray and main loop')
         try:
-            tray_thread = threading.Thread(target=self.tray.run, daemon=True)
+            # Check if settings exist and are valid before starting
+            if not self.settings_repo.get_settings():
+                self.logger.warning("No settings found. Using defaults.")
+                self.notification_service.notify(
+                    "Settings", 
+                    "No settings found. Please configure in the dashboard.",
+                    "warning"
+                )
+        
+            # Start tray icon - change to non-daemon for more reliable execution
+            tray_thread = threading.Thread(target=self.tray.run, daemon=False)
             tray_thread.start()
-            self.logger.info("System tray thread started")
+            self.logger.info(LOG_MESSAGES["TRAY_STARTED"])
+        
+            # Start GUI
             self.root.mainloop()
             self.logger.info("Application main loop started")
+        
+            # Wait for tray thread to complete if mainloop exits
+            if tray_thread.is_alive():
+                tray_thread.join()
+            
         except Exception as e:
             self.logger.error(f"Error running application: {e}")
             self.exit_app()
@@ -159,44 +179,40 @@ class PrimeSync:
         self.logger.info("Initiating application shutdown")
 
         try:
-            # We still call scheduler.shutdown() but it's now a dummy method
-            self.scheduler.shutdown()
             self.tray.stop()
             if not db.is_closed():
                 db.close()
             self.root.quit()
             self.root.destroy()
-            self.logger.info("Application shutdown completed")
+            self.logger.info(LOG_MESSAGES["APP_SHUTDOWN"])
             sys.exit(0)
         except Exception as e:
             self.logger.error(f"Critical error during shutdown: {e}")
             sys.exit(1)
 
-
 if __name__ == "__main__":
-    # Set up logging
+    # Setup logging
     logging.basicConfig(
-        filename=Config().LOG_FILE,
         level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        filemode="a",
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.FileHandler("logs/primesync.log"),
+            logging.StreamHandler()
+        ]
     )
-
-    # Set up global exception handler
+    
+    # Set exception handler
     sys.excepthook = handle_exception
-
+    
+    # Create and run application
+    app = PrimeSync()
     try:
-        app = PrimeSync()
+        print("Starting PrimeSync application...")
         app.run()
+    except KeyboardInterrupt:
+        print("Application terminated by user")
+        app.exit_app()
     except Exception as e:
-        logging.critical(f"Fatal error starting application: {e}")
-
-        # Try to show an error dialog
-        try:
-            import tkinter.messagebox as messagebox
-
-            messagebox.showerror("PrimeSync Error", f"Fatal error: {e}")
-        except:
-            pass
-
-        sys.exit(1)
+        print(f"Critical error: {e}")
+        logging.error(f"Critical error: {e}", exc_info=True)
+        app.exit_app()

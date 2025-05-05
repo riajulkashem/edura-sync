@@ -6,8 +6,17 @@ from pathlib import Path
 
 from peewee import *
 
+from core.constants import (
+    DEFAULT_DB_NAME,
+    DB_PRAGMAS,
+    TABLE_NAMES,
+    DEVICE_DEFAULTS
+)
+
+
 # Create a logger
 logger = logging.getLogger(__name__)
+
 
 class DatabaseFactory:
     """Factory for creating and configuring the database connection."""
@@ -15,7 +24,7 @@ class DatabaseFactory:
     _db = None
 
     @classmethod
-    def get_database(cls, db_path: str) -> SqliteDatabase:
+    def get_database(cls, db_path: str = DEFAULT_DB_NAME) -> SqliteDatabase:
         """
         Get or create a database connection.
         Args:
@@ -25,30 +34,27 @@ class DatabaseFactory:
         """
         if cls._db is None:
             logger.info(f"Initializing database with path: {db_path}")
-            
+
             # If path is relative, use current directory
             if not os.path.isabs(db_path):
                 # Get the project root directory (current working directory)
                 project_dir = Path.cwd()
                 db_path = str(project_dir / db_path)
                 logger.info(f"Using absolute path: {db_path}")
-            
+
             # Ensure parent directory exists
             db_dir = os.path.dirname(db_path)
             if db_dir:  # Only create directory if there is a path
                 os.makedirs(db_dir, exist_ok=True)
                 logger.info(f"Ensured database directory exists: {db_dir}")
-            
-            cls._db = SqliteDatabase(db_path, pragmas={
-                'journal_mode': 'wal',  # Write-Ahead Logging for better concurrency
-                'foreign_keys': 1,      # Enable foreign key support
-                'cache_size': -1024*64  # 64MB cache size
-            })
+
+            cls._db = SqliteDatabase(db_path, pragmas=DB_PRAGMAS)
             logger.info(f"Database created at {db_path}")
         return cls._db
 
+
 # Initialize with a default path - this will be replaced in main.py
-db = DatabaseFactory.get_database("primesync.db")
+db = DatabaseFactory.get_database()
 
 
 class BaseModel(Model):
@@ -66,14 +72,14 @@ class Device(BaseModel):
 
     id = AutoField()
     ip_address = CharField(max_length=15, help_text="IPv4 address of the device")
-    port = IntegerField(default=4370)
-    password = CharField(max_length=32, default="0")
+    port = IntegerField(default=DEVICE_DEFAULTS["PORT"])
+    password = CharField(max_length=32, default=DEVICE_DEFAULTS["PASSWORD"])
     device_model = CharField(max_length=50)
-    status = CharField(max_length=20, default="Offline")
+    status = CharField(max_length=20, default=DEVICE_DEFAULTS["STATUS"])
     created_at = DateTimeField(default=datetime.now)
 
     class Meta:
-        table_name = "devices"
+        table_name = TABLE_NAMES["DEVICES"]
 
 
 class User(BaseModel):
@@ -97,7 +103,7 @@ class User(BaseModel):
     updated_at = DateTimeField(default=datetime.now)
 
     class Meta:
-        table_name = "users"
+        table_name = TABLE_NAMES["USERS"]
 
 
 class Attendance(BaseModel):
@@ -115,7 +121,7 @@ class Attendance(BaseModel):
     created_at = DateTimeField(default=datetime.now)
 
     class Meta:
-        table_name = "attendance_logs"
+        table_name = TABLE_NAMES["ATTENDANCE"]
 
 
 class Settings(BaseModel):
@@ -132,20 +138,4 @@ class Settings(BaseModel):
     auth_token = CharField(max_length=512, null=True)  # To store the authentication token
 
     class Meta:
-        table_name = "settings"
-
-
-class Schedule(BaseModel):
-    """
-    Model for storing scheduled tasks (pull/push).
-    Includes timing and status information.
-    """
-
-    id = AutoField()
-    task_type = CharField(max_length=20, choices=(("pull", "Pull"), ("push", "Push")))
-    schedule_time = CharField(max_length=5)  # Format: HH:MM
-    enabled = BooleanField(default=True)
-    last_run = DateTimeField(null=True)
-
-    class Meta:
-        table_name = "schedules"
+        table_name = TABLE_NAMES["SETTINGS"]

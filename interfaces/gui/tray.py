@@ -15,10 +15,8 @@ class SystemTray:
         app,
         config,
         device_manager,
-        scheduler,
         api_client,
         dashboard_gui,
-        settings_gui,
         notification_service,
     ):
         """
@@ -27,19 +25,15 @@ class SystemTray:
             app: Reference to the main PrimeSync application.
             config: Application configuration.
             device_manager: Service for device management.
-            scheduler: Service for task scheduling.
             api_client: Service for cloud API interactions.
             dashboard_gui: Dashboard GUI component.
-            settings_gui: Settings GUI component.
             notification_service: Service for sending notifications.
         """
         self.app = app
         self.config = config
         self.device_manager = device_manager
-        self.scheduler = scheduler
         self.api_client = api_client
         self.dashboard_gui = dashboard_gui
-        self.settings_gui = settings_gui
         self.notification_service = notification_service
         self.logger = logging.getLogger(__name__)
         self.icon: Optional[pystray.Icon] = None
@@ -108,10 +102,6 @@ class SystemTray:
                     self._run_action(
                         self.dashboard_gui.show_dashboard, "Show Dashboard"
                     ),
-                ),
-                pystray.MenuItem(
-                    "Settings",
-                    self._run_action(self.settings_gui.show_settings, "Show Settings"),
                 ),
                 pystray.MenuItem(
                     "Exit", self._run_action(self.app.exit_app, "Exit Application")

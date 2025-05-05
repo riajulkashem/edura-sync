@@ -1,6 +1,6 @@
 import logging
 from peewee import *
-from interfaces.database.models import db, Settings, Device, User, Attendance, Schedule
+from interfaces.database.models import db, Settings, Device, User, Attendance
 
 class BaseRepository:
     """Base repository with common functionality for all repositories."""
@@ -140,47 +140,3 @@ class AttendanceRepository(BaseRepository):
         except Exception as e:
             self.logger.error(f"Failed to get all attendance records: {e}")
             return []
-
-class ScheduleRepository(BaseRepository):
-    """Repository for schedule data."""
-    
-    def __init__(self):
-        """Initialize with Schedule model."""
-        super().__init__()
-        self.model = Schedule
-    
-    def get_all(self):
-        """Get all schedules."""
-        try:
-            return list(self.model.select())
-        except Exception as e:
-            self.logger.error(f"Failed to get all schedules: {e}")
-            return []
-    
-    def get_by_task_type(self, task_type):
-        """Get schedule by task type."""
-        try:
-            return self.model.get_or_none(self.model.task_type == task_type)
-        except Exception as e:
-            self.logger.error(f"Failed to get schedule by task type {task_type}: {e}")
-            return None
-    
-    def get_enabled(self):
-        """Get all enabled schedules."""
-        try:
-            return list(self.model.select().where(self.model.enabled == True))
-        except Exception as e:
-            self.logger.error(f"Failed to get enabled schedules: {e}")
-            return []
-    
-    def update_last_run(self, schedule_id, timestamp):
-        """Update the last_run time for a schedule."""
-        try:
-            self.model.update(last_run=timestamp).where(
-                self.model.id == schedule_id
-            ).execute()
-            self.logger.debug(f"Updated last_run for schedule {schedule_id}")
-            return True
-        except Exception as e:
-            self.logger.error(f"Failed to update last_run for schedule {schedule_id}: {e}")
-            return False
