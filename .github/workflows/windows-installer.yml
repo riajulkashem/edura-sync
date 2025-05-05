@@ -9,13 +9,13 @@ on:
 
 jobs:
   build-windows:
-    runs-on: windows-2019  # Try windows-2019 for stability
+    runs-on: windows-2019
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           cache: 'pip'
@@ -140,7 +140,7 @@ jobs:
           dir installer
 
       - name: Upload installer artifact
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: PrimeSync-Windows-Installer
           path: installer/PrimeSync-Setup-${{ env.APP_VERSION }}.exe
@@ -148,7 +148,7 @@ jobs:
       - name: Create Release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         id: create_release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           name: PrimeSync v${{ env.APP_VERSION }}
           tag_name: v${{ env.APP_VERSION }}
