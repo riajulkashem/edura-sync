@@ -5,11 +5,11 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-  workflow_dispatch:  # Allows manual triggering
+  workflow_dispatch:
 
 jobs:
   build-windows:
-    runs-on: windows-latest
+    runs-on: windows-2019  # Try windows-2019 for stability
 
     steps:
       - uses: actions/checkout@v3
@@ -20,11 +20,19 @@ jobs:
           python-version: '3.10'
           cache: 'pip'
 
+      - name: Clear pip cache
+        run: |
+          pip cache purge
+
+      - name: Install Inno Setup
+        run: |
+          choco install innosetup --version=6.2.2 -y
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller inno-setup-tools
+          pip install pyinstaller==6.9.0 pillow==10.4.0
 
       - name: Create version file
         run: |
@@ -35,7 +43,11 @@ jobs:
 
       - name: Build with PyInstaller
         run: |
-          pyinstaller --clean --noconfirm primesync.spec
+          pyinstaller --clean --noconfirm --hidden-import=peewee --hidden-import=requests --hidden-import=logging --hidden-import=datetime --hidden-import=interfaces.database.models --hidden-import=core.security --hidden-import=services.notification primesync.spec
+
+      - name: Verify PyInstaller output
+        run: |
+          dir dist\PrimeSyncTrayApp || (echo "PyInstaller output missing" && exit 1)
 
       - name: Create Inno Setup installer
         run: |
@@ -78,6 +90,7 @@ jobs:
           Source: "dist\PrimeSyncTrayApp\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
           Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
           Source: "CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
+          Source: "database.db"; DestDir: "{app}"; Flags: ignoreversion
           
           [Dirs]
           Name: "{app}\data"; Permissions: users-modify
@@ -98,14 +111,22 @@ jobs:
           
           $innoScript | Out-File -FilePath ./installer.iss -Encoding utf8
           
-          # Create LICENSE file if it doesn't exist (required by Inno Setup)
+          # Debug: List files
+          dir .
+          dir assets
+          dir dist\PrimeSyncTrayApp
+          
+          # Create LICENSE file
           if (-not (Test-Path LICENSE)) {
             "MIT License - Attendance synchronization system by Riajul Kashem" | Out-File -FilePath LICENSE -Encoding utf8
           }
           
-          # Convert PNG to ICO if needed
+          # Convert PNG to ICO
           if (-not (Test-Path assets/icon.ico)) {
             mkdir -Force assets
+            if (-not (Test-Path assets/icon.png)) {
+              throw "assets/icon.png not found"
+            }
             pip install pillow
             python -c "from PIL import Image; img = Image.open('assets/icon.png'); img.save('assets/icon.ico')"
           }
@@ -114,11 +135,15 @@ jobs:
           mkdir -Force installer
           & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' installer.iss
 
+      - name: Debug installer files
+        run: |
+          dir installer
+
       - name: Upload installer artifact
         uses: actions/upload-artifact@v2
         with:
           name: PrimeSync-Windows-Installer
-          path: installer/*.exe
+          path: installer/PrimeSync-Setup-${{ env.APP_VERSION }}.exe
 
       - name: Create Release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
