@@ -5,6 +5,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
+
 class SecurityManager:
     """
     Handles encryption and decryption of sensitive data.
@@ -30,11 +31,11 @@ class SecurityManager:
             # but unique to this machine
             hostname = os.uname().nodename if hasattr(os, 'uname') else os.environ.get('COMPUTERNAME', 'unknown')
             salt = hostname.encode()[:16].ljust(16, b'x')
-            
+
             # Use a fixed password as base - this is not for high security
             # but just to make stored passwords not plaintext
             password = b"PrimeSyncDefaultKey"
-            
+
             kdf = PBKDF2HMAC(
                 algorithm=hashes.SHA256(),
                 length=32,
@@ -59,7 +60,7 @@ class SecurityManager:
         """
         if not data:
             return ""
-        
+
         try:
             encrypted = self.cipher.encrypt(data.encode())
             return encrypted.decode()
@@ -78,12 +79,12 @@ class SecurityManager:
         """
         if not data:
             return ""
-            
+
         # Handle the error marker
         if data == "ENCRYPTION_FAILED":
             self.logger.warning("Attempted to decrypt data that failed encryption")
             return ""
-            
+
         try:
             decrypted = self.cipher.decrypt(data.encode())
             return decrypted.decode()
@@ -97,14 +98,14 @@ class SecurityManager:
     def save_token_to_settings(self, token: str, settings_repo) -> None:
         """
         Save the authentication token to the settings database.
-        
+
         Args:
             token: The authentication token to store
             settings_repo: Repository for settings
         """
         if not token:
             return
-            
+
         try:
             settings = settings_repo.get_settings()
             if settings:
@@ -119,10 +120,10 @@ class SecurityManager:
     def get_token_from_settings(self, settings_repo) -> str:
         """
         Get the authentication token from settings database.
-        
+
         Args:
             settings_repo: Repository for settings
-            
+
         Returns:
             str: The decrypted authentication token or empty string if not found
         """

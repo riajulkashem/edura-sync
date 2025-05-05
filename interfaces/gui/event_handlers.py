@@ -170,7 +170,7 @@ class SettingsEventHandler:
                 data['auth_token'] = self.auth_token
 
             # Save settings to the database
-            self.settings_repo.save_settings(data)
+            self.settings_repo.save_settings(**data)
 
             # Update API client with new settings
             self.app.api_client.update_settings()

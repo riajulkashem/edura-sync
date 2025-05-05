@@ -103,3 +103,11 @@ LOG_MESSAGES = {
     "TRAY_STARTED": "System tray thread started",
     "APP_SHUTDOWN": "Application shutdown completed"
 }
+
+# Settings fields
+DEFAULT_SETTING = {
+    "CLOUD_API_URL": "http://localhost:8000",
+    "USERNAME": "Username",
+    "PASSWORD": "Password",
+    "INSTITUTE_ID": "Institute ID"
+}

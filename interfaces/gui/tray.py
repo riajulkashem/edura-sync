@@ -11,13 +11,13 @@ class SystemTray:
     """
 
     def __init__(
-        self,
-        app,
-        config,
-        device_manager,
-        api_client,
-        dashboard_gui,
-        notification_service,
+            self,
+            app,
+            config,
+            device_manager,
+            api_client,
+            dashboard_gui,
+            notification_service,
     ):
         """
         Initialize the system tray with dependencies.
@@ -42,14 +42,15 @@ class SystemTray:
     def _run_action(self, action: Callable, description: str) -> Callable:
         """
         Creates a wrapper function for tray menu actions with error handling.
-        
+
         Args:
             action: The function to run
             description: Description of the action for logging
-            
+
         Returns:
             Callable: Wrapped function that handles errors
         """
+
         def wrapper(icon, item):
             try:
                 self.logger.info(f"Running action: {description}")
@@ -60,6 +61,7 @@ class SystemTray:
                 self.notification_service.notify(
                     "Error", f"Failed to {description.lower()}: {str(e)}", "error"
                 )
+
         return wrapper
 
     def _setup_tray(self) -> None:

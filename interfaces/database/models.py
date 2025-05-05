@@ -1,4 +1,3 @@
-# interfaces/database/models.py
 import os
 from datetime import datetime
 import logging
@@ -58,18 +57,10 @@ db = DatabaseFactory.get_database()
 
 
 class BaseModel(Model):
-    """Base model with database configuration."""
-
     class Meta:
         database = db
 
-
 class Device(BaseModel):
-    """
-    Model representing a ZKTeco device.
-    Stores device connection details and status.
-    """
-
     id = AutoField()
     ip_address = CharField(max_length=15, help_text="IPv4 address of the device")
     port = IntegerField(default=DEVICE_DEFAULTS["PORT"])
@@ -77,17 +68,12 @@ class Device(BaseModel):
     device_model = CharField(max_length=50)
     status = CharField(max_length=20, default=DEVICE_DEFAULTS["STATUS"])
     created_at = DateTimeField(default=datetime.now)
+    device_cloud_id = IntegerField(null=True, help_text="Link to device record in cloud")
 
     class Meta:
         table_name = TABLE_NAMES["DEVICES"]
 
-
 class User(BaseModel):
-    """
-    Model representing a user registered on a device.
-    Stores user details and links to a device.
-    """
-
     uid = IntegerField(primary_key=True)
     name = CharField(max_length=100)
     role = IntegerField(help_text="Privilege level on the device")
@@ -99,19 +85,15 @@ class User(BaseModel):
     card = CharField(max_length=50, null=True, help_text="ID card number if applicable")
     user_cloud_id = IntegerField(null=True, help_text="Link to user record in cloud")
     device = ForeignKeyField(Device, backref="users", null=True)
+    saved_to_device = BooleanField(default=False)
+    device_cloud_id = IntegerField(null=True, help_text="Link to user record in cloud")
     created_at = DateTimeField(default=datetime.now)
     updated_at = DateTimeField(default=datetime.now)
 
     class Meta:
         table_name = TABLE_NAMES["USERS"]
 
-
 class Attendance(BaseModel):
-    """
-    Model representing an attendance record.
-    Links to a user and stores punch details.
-    """
-
     id = AutoField()
     user = ForeignKeyField(User, backref="attendances")
     timestamp = DateTimeField()
@@ -119,23 +101,24 @@ class Attendance(BaseModel):
     punch = CharField(max_length=20, help_text="Punch type (e.g., IN, OUT)")
     uid = IntegerField(null=True, help_text="Device-specific user identifier at punch")
     created_at = DateTimeField(default=datetime.now)
+    posted = BooleanField(default=False)
 
     class Meta:
         table_name = TABLE_NAMES["ATTENDANCE"]
 
-
 class Settings(BaseModel):
-    """
-    Model for storing application settings.
-    Includes cloud API credentials and configuration.
-    """
-
-    id = AutoField()
-    cloud_api_url = CharField(max_length=255)
-    username = CharField(max_length=100)
-    password = CharField(max_length=256)  # Encrypted
-    institute_id = CharField(max_length=100)  # Changed from client_key
-    auth_token = CharField(max_length=512, null=True)  # To store the authentication token
+    cloud_api_url = CharField(default="")
+    username = CharField(default="")
+    password = CharField(default="", help_text="Encrypted password")
+    institute_id = CharField(default="")
+    auth_token = CharField(default="", null=True)
+    in_time_process = TimeField(null=True)
+    out_time_process = TimeField(null=True)
+    last_sync = DateTimeField(null=True)
+    last_post = DateTimeField(null=True)
+    attendance_pending = IntegerField(default=0)
+    created_at = DateTimeField(default=datetime.now)
+    updated_at = DateTimeField(default=datetime.now)
 
     class Meta:
         table_name = TABLE_NAMES["SETTINGS"]
