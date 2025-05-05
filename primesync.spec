@@ -1,9 +1,5 @@
-import sys
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
-import os
-from pathlib import Path
-from win32com.client import Dispatch
 
 block_cipher = None
 
@@ -11,13 +7,23 @@ block_cipher = None
 zk_data = collect_data_files('zk')
 hiddenimports = collect_submodules('zk') + [
     'peewee',
+    'peewee_migrate',
     'apscheduler',
     'pystray',
-    'notify-py',  # Replace plyer with notify-py
+    'notify_py',
     'PIL',
     'cryptography',
     'requests',
-    'win32com'
+    'loguru',
+    'certifi',
+    'charset_normalizer',
+    'idna',
+    'urllib3',
+    'six',
+    'tzlocal',
+    'interfaces.database.models',
+    'core.security',
+    'services.notification'
 ]
 
 a = Analysis(
@@ -33,7 +39,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['ruff', 'pyobjc_core', 'pyobjc_framework_Cocoa', 'pyobjc_framework_Quartz'],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
@@ -41,7 +47,6 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
-# Update the EXE section to include a proper icon
 exe = EXE(
     pyz,
     a.scripts,
@@ -57,7 +62,6 @@ exe = EXE(
     icon='assets/icon.png'
 )
 
-# The COLLECT path should be simpler for Inno Setup to locate
 coll = COLLECT(
     exe,
     a.binaries,
@@ -67,31 +71,4 @@ coll = COLLECT(
     upx=True,
     upx_exclude=[],
     name='PrimeSyncTrayApp'
-)
-
-# Post-build step to create Start Menu shortcut on Windows
-if sys.platform == 'win32':
-    start_menu_dir = Path(r'C:\ProgramData\Microsoft\Windows\Start Menu\Programs\PrimeSyncTrayApp')
-    start_menu_dir.mkdir(parents=True, exist_ok=True)
-    shortcut_path = start_menu_dir / 'PrimeSyncTrayApp.lnk'
-    target_path = Path(r'C:\Program Files\PrimeSyncTrayApp\PrimeSyncTrayApp.exe')
-    icon_path = Path(r'C:\Program Files\PrimeSyncTrayApp\assets\icon.png')
-
-    shell = Dispatch('WScript.Shell')
-    shortcut = shell.CreateShortCut(str(shortcut_path))
-    shortcut.Targetpath = str(target_path)
-    shortcut.WorkingDirectory = str(target_path.parent)
-    shortcut.IconLocation = str(icon_path)
-    shortcut.Description = 'PrimeSync Tray App for device management'
-    shortcut.save()
-
-app = BUNDLE(
-    coll,
-    name='PrimeSyncTrayApp.app',
-    icon='assets/icon.png',
-    bundle_identifier='com.primesync.trayapp',
-    info_plist={
-        'NSPrincipalClass': 'NSApplication',
-        'NSHighResolutionCapable': True
-    }
 )

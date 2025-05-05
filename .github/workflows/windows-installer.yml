@@ -17,7 +17,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.13.2'
           cache: 'pip'
 
       - name: Clear pip cache
@@ -34,6 +34,9 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller==6.9.0 pillow==11.2.1
 
+      - name: Install pywin32
+        run: |
+          pip install pywin32
       - name: Create version file
         run: |
           $buildNum = "${{ github.run_number }}"
