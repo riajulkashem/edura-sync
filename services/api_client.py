@@ -162,6 +162,7 @@ class APIClient:
             with db.atomic():
                 created_d, updated_d = 0, 0
                 for d in devices_data:
+                    print(f'creating device data: {d} \n')
                     existing = self.device_repo.get(id=d.get("id"))
                     if existing:
                         self.device_repo.update(
@@ -174,6 +175,7 @@ class APIClient:
                         )
                         updated_d += 1
                     else:
+                        print(f'no it\'s updated device data: {d} \n')
                         self.device_repo.create(
                             id=d.get("id"),
                             ip_address=d.get("ip_address"),
@@ -190,6 +192,7 @@ class APIClient:
                 now = datetime.now()
                 for u in users_data:
                     existing = self.user_repo.get(user_id=u.get("device_user_id"))
+                    print(f'creating user data: {u} \n')
                     if existing:
                         self.user_repo.update(
                             existing,
@@ -200,6 +203,7 @@ class APIClient:
                         )
                         updated_u += 1
                     else:
+                        print(f'no it\'s updated user data: {u} \n')
                         self.user_repo.create(
                             uid=int(u.get("id")),
                             name=u.get("name"),
