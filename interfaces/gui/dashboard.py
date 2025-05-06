@@ -6,7 +6,7 @@ from datetime import datetime
 from tkinter import ttk
 
 from core.config import Config
-from core.constants import UI_CONFIG, APP_NAME
+from core.constants import UI_CONFIG, APP_NAME, APP_VERSION
 from interfaces.gui.ui_utils import (
     create_window,
     setup_styles,
@@ -21,15 +21,15 @@ class DashboardGUI:
     """GUI dashboard for the PrimeSync application."""
 
     def __init__(
-        self,
-        root,
-        app,
-        device_repo,
-        user_repo,
-        notification_service,
-        settings_repo=None,
-        api_client=None,
-        security=None,
+            self,
+            root,
+            app,
+            device_repo,
+            user_repo,
+            notification_service,
+            settings_repo=None,
+            api_client=None,
+            security=None,
     ):
         """Initialize the dashboard GUI with required components."""
         self.logger = logging.getLogger(__name__)
@@ -292,7 +292,7 @@ class DashboardGUI:
             try:
                 from core.version import version
 
-                version_text = f"Version {version}"
+                version_text = f"Version {APP_VERSION}"
             except ImportError:
                 version_text = "Version 1.0"
             ttk.Label(frame, text=version_text).pack(pady=(0, 20))
@@ -301,7 +301,7 @@ class DashboardGUI:
             ttk.Label(
                 frame,
                 text="A system tray application for managing ZKTeco devices,\n"
-                + "pulling attendance data, and syncing with a cloud API.",
+                     + "pulling attendance data, and syncing with a cloud API.",
                 justify="center",
             ).pack(pady=10)
 
@@ -551,6 +551,43 @@ class DashboardGUI:
         )
         sync_device.grid(row=1, column=2, padx=5, pady=5)
 
+        # Add scheduler controls
+        scheduler_frame = ttk.Frame(self.dashboard_content)
+        scheduler_frame.pack(fill="x", padx=10, pady=5)
+
+        # Section header
+        ttk.Label(
+            scheduler_frame, text="Scheduler", font=("TkDefaultFont", 12, "bold")
+        ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(10, 5))
+
+        # Status
+        scheduler_status = "Unknown"
+        if self.settings_repo:
+            try:
+                settings = self.settings_repo.get_settings()
+                if settings and hasattr(settings, "is_scheduler_enabled"):
+                    scheduler_status = "Enabled" if settings.is_scheduler_enabled else "Disabled"
+
+                    if settings.process_time:
+                        process_time_str = settings.process_time.strftime("%H:%M")
+                        scheduler_status += f" (Next run at {process_time_str})"
+            except Exception as e:
+                self.logger.error(f"Error getting scheduler status: {e}")
+
+        ttk.Label(scheduler_frame, text=f"Scheduler Status: {scheduler_status}").grid(
+            row=1, column=0, columnspan=3, sticky="w", padx=5, pady=2
+        )
+
+        # Add run now button
+        run_now_button = ttk.Button(
+            scheduler_frame,
+            text="Run Post to Cloud Now",
+            command=lambda: self._perform_action(
+                self.api_client.post_to_cloud, "Running manual cloud post"
+            ),
+        )
+        run_now_button.grid(row=2, column=0, padx=5, pady=5)
+
     def _refresh_dashboard(self):
         """Refresh dashboard content."""
         try:
@@ -594,9 +631,9 @@ class DashboardGUI:
                 else:
                     error_msg = f"{action_name} failed"
                     if (
-                        self.api_client
-                        and hasattr(self.api_client, "last_error")
-                        and self.api_client.last_error
+                            self.api_client
+                            and hasattr(self.api_client, "last_error")
+                            and self.api_client.last_error
                     ):
                         error_msg = f"Failed: {self.api_client.last_error}"
                     self.status_label.config(text=error_msg, foreground="red")
@@ -618,6 +655,7 @@ class DashboardGUI:
             )
             return False
 
+    # In dashboard.py - update the _save_settings method
     def _save_settings(self):
         """Save settings from form fields."""
         # Check dependencies
@@ -649,9 +687,18 @@ class DashboardGUI:
                 )
                 return
 
+            # Get the current scheduler state
+            current_settings = self.settings_repo.get_settings()
+            current_scheduler_enabled = False
+            if current_settings and hasattr(current_settings, "is_scheduler_enabled"):
+                current_scheduler_enabled = current_settings.is_scheduler_enabled
+
             # Encrypt password if provided
             password = self.password.get()
             encrypted_password = self.security.encrypt(password) if password else None
+
+            # Get new scheduler state
+            new_scheduler_enabled = self.is_scheduler_enabled.get()
 
             # Prepare settings data
             settings_data = {
@@ -659,7 +706,7 @@ class DashboardGUI:
                 "username": self.username.get(),
                 "institute_id": self.institute_id.get(),
                 "process_time": process_time_obj,
-                "is_scheduler_enabled": self.is_scheduler_enabled.get(),
+                "is_scheduler_enabled": new_scheduler_enabled,
             }
 
             # Only update password if provided
@@ -672,6 +719,23 @@ class DashboardGUI:
             # Update API client
             if self.api_client:
                 self.api_client.update_settings()
+
+            # Handle scheduler state changes
+            if hasattr(self.app, 'scheduler'):
+                if new_scheduler_enabled and not current_scheduler_enabled:
+                    # Scheduler was enabled - start it
+                    self.app.scheduler.start()
+                    self.logger.info("Scheduler started after being enabled in settings")
+                    self.notification_service.notify(
+                        "Scheduler", "Scheduler has been enabled and started", "info"
+                    )
+                elif not new_scheduler_enabled and current_scheduler_enabled:
+                    # Scheduler was disabled - stop it
+                    self.app.scheduler.stop()
+                    self.logger.info("Scheduler stopped after being disabled in settings")
+                    self.notification_service.notify(
+                        "Scheduler", "Scheduler has been disabled and stopped", "info"
+                    )
 
             # Notify success
             self.notification_service.notify(

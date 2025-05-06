@@ -26,6 +26,7 @@ from interfaces.gui.tray import SystemTray
 from services.api_client import APIClient
 from services.device_manager import DeviceManager
 from services.notification import NotificationService
+from core.scheduler import SchedulerService
 
 
 def handle_exception(exc_type, exc_value, exc_traceback):
@@ -111,6 +112,9 @@ class PrimeSync:
         self._load_settings()
         self._add_to_startup()
 
+        # Initialize scheduler after all other components
+        self.scheduler = SchedulerService(self.settings_repo, self.api_client)
+
     def _load_settings(self) -> None:
         """Load settings and initialize services."""
         try:
@@ -192,18 +196,28 @@ class PrimeSync:
         except Exception as e:
             self.logger.error(f"Failed to add to startup: {e}")
 
+    # In main.py - update the run method
     def run(self) -> None:
         """Start the application, running the system tray and main loop."""
         print("Start the application, running the system tray and main loop")
         try:
-            # Check if settings exist and are valid before starting
-            if not self.settings_repo.get_settings():
+            # Check settings before starting
+            settings = self.settings_repo.get_settings()
+
+            if not settings:
                 self.logger.warning("No settings found. Using defaults.")
                 self.notification_service.notify(
                     "Settings",
                     "No settings found. Please configure in the dashboard.",
                     "warning",
                 )
+            else:
+                # Auto-start scheduler if enabled in settings
+                if settings.is_scheduler_enabled:
+                    self.scheduler.start()
+                    self.logger.info("Scheduler auto-started based on settings")
+                else:
+                    self.logger.info("Scheduler not started (disabled in settings)")
 
             # Start tray icon - change to non-daemon for more reliable execution
             tray_thread = threading.Thread(target=self.tray.run, daemon=False)
@@ -241,6 +255,10 @@ class PrimeSync:
         except Exception as e:
             self.logger.error(f"Critical error during shutdown: {e}")
             sys.exit(1)
+
+        # Stop the scheduler
+        if hasattr(self, 'scheduler'):
+            self.scheduler.stop()
 
 
 if __name__ == "__main__":
