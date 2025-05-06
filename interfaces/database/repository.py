@@ -7,7 +7,7 @@ from interfaces.database.models import db, Device, User, Attendance, Settings
 class Repository:
     """
     Generic repository for basic CRUD operations using Peewee.
-    Returns Query objects for chaining, not plain lists.
+    Returns lists of model instances for `get_all` and `filter`.
     """
     def __init__(self, model):
         self.model = model
@@ -24,22 +24,26 @@ class Repository:
         query = self.model.select()
         for field, value in filters.items():
             if not hasattr(self.model, field):
-                raise ValueError(f"Field '{field}' does not exist on model {self.model.__name__}")
+                raise ValueError(
+                    f"Field '{field}' does not exist on model {self.model.__name__}"
+                )
             query = query.where(getattr(self.model, field) == value)
         return query.exists()
 
     def get_all(self):
-        """Return a Peewee Query for all records (use .list() if you need a list)."""
-        return self.model.select()
+        """Return a list of all records."""
+        return list(self.model.select())
 
     def filter(self, **filters):
-        """Return a Query filtered by the given field=value pairs."""
+        """Return a list of records filtered by the given field=value pairs."""
         query = self.model.select()
         for field, value in filters.items():
             if not hasattr(self.model, field):
-                raise ValueError(f"Field '{field}' does not exist on model {self.model.__name__}")
+                raise ValueError(
+                    f"Field '{field}' does not exist on model {self.model.__name__}"
+                )
             query = query.where(getattr(self.model, field) == value)
-        return query
+        return list(query)
 
     def create(self, **data):
         """Insert a new record and return the created instance."""
@@ -61,22 +65,39 @@ class Repository:
             instance.save()
         return instance
 
-    def update_bulk(self, data, ids=None, **filters):
+    def update_bulk(self, data, ids=None, filters=None, **filters_kwargs):
         """
-        Update multiple records matching either a list of IDs or filters.
-        Returns number of rows updated.
+        Update multiple records matching either a list of IDs, a filters dict, or keyword filters.
+        Args:
+            data: dict of field-value pairs to update.
+            ids: optional list of primary-key values.
+            filters: optional dict of field-value pairs for filtering.
+            **filters_kwargs: additional field-value filters.
+        Returns:
+            Number of rows updated.
         """
-        if not ids and not filters:
-            raise ValueError("Either 'ids' or 'filters' must be provided for bulk update")
+        # Combine filters from dict and kwargs
+        combined = {}
+        if filters:
+            combined.update(filters)
+        combined.update(filters_kwargs)
+
+        if not ids and not combined:
+            raise ValueError(
+                "Either 'ids', 'filters', or filter kwargs must be provided for bulk update"
+            )
+
         query = self.model.update(**data)
         if ids:
-            # handles primary-key fields automatically
             query = query.where(self.model._meta.primary_key.in_(ids))
         else:
-            for field, value in filters.items():
+            for field, value in combined.items():
                 if not hasattr(self.model, field):
-                    raise ValueError(f"Field '{field}' does not exist on model {self.model.__name__}")
+                    raise ValueError(
+                        f"Field '{field}' does not exist on model {self.model.__name__}"
+                    )
                 query = query.where(getattr(self.model, field) == value)
+
         with db.atomic():
             return query.execute()
 
@@ -92,7 +113,9 @@ class Repository:
         query = self.model.delete()
         for field, value in filters.items():
             if not hasattr(self.model, field):
-                raise ValueError(f"Field '{field}' does not exist on model {self.model.__name__}")
+                raise ValueError(
+                    f"Field '{field}' does not exist on model {self.model.__name__}"
+                )
             query = query.where(getattr(self.model, field) == value)
         with db.atomic():
             return query.execute()
@@ -100,7 +123,7 @@ class Repository:
     def count(self, **filters) -> int:
         """Count all or filtered records."""
         if filters:
-            return self.filter(**filters).count()
+            return len(self.filter(**filters))
         return self.model.select().count()
 
     def to_dict(self, instance):
@@ -135,14 +158,14 @@ class AttendanceRepository(Repository):
         """Return attendance records in a cloud-friendly format."""
         records = []
         for att in self.filter(posted=False):
-            records.append({
-                "device_id": att.device_id,
-                "timestamp": att.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-                "punch": att.punch,
-                "status": att.status,
-                "user_id": att.user_id,
-            })
-        print(f'records: {records}')
+            if att.user and att.user.user_cloud_id:
+                records.append({
+                    "device_id": att.device_id,
+                    "timestamp": att.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                    "punch": att.punch,
+                    "status": att.status,
+                    "user_id": att.user_id,
+                })
         return records
 
 
