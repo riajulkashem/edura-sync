@@ -2,14 +2,14 @@ name: Build Windows Installer
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, prototype ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, prototype ]
   workflow_dispatch:
 
 jobs:
   build-windows:
-    runs-on: windows-2019
+    runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -32,7 +32,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pywin32 pyinstaller pillow
+          pip install pyinstaller==6.9.0 pillow==11.2.1
 
       - name: Create version file
         run: |
@@ -48,6 +48,41 @@ jobs:
       - name: Verify PyInstaller output
         run: |
           dir dist\PrimeSyncTrayApp || (echo "PyInstaller output missing" && exit 1)
+
+      - name: Generate self-signed certificate
+        run: |
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=PrimeSyncTest" -KeyUsage DigitalSignature -CertStoreLocation Cert:\CurrentUser\My -KeyAlgorithm RSA -KeyLength 2048
+          $password = ConvertTo-SecureString -String "PrimeSyncCert123" -Force -AsPlainText
+          Export-PfxCertificate -Cert Cert:\CurrentUser\My\$($cert.Thumbprint) -FilePath codesign.pfx -Password $password
+        shell: powershell
+
+      - name: Sign the executable
+        run: |
+          $pfx_file = "codesign.pfx"
+          $pfx_password = "PrimeSyncCert123"
+          if (-not (Test-Path $pfx_file)) {
+            Write-Host "Certificate not found, cannot sign executable"
+            exit 1
+          }
+          & "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe" sign /f $pfx_file /p $pfx_password /tr http://timestamp.digicert.com /td sha256 /fd sha256 "dist\PrimeSyncTrayApp\PrimeSyncTrayApp.exe"
+        shell: powershell
+
+      - name: Verify signature
+        run: |
+          if (Test-Path "dist\PrimeSyncTrayApp\PrimeSyncTrayApp.exe") {
+            & "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe" verify /pa "dist\PrimeSyncTrayApp\PrimeSyncTrayApp.exe"
+          } else {
+            Write-Host "Executable not found, cannot verify signature"
+            exit 1
+          }
+        shell: powershell
+
+      - name: Clean up certificate
+        run: |
+          if (Test-Path codesign.pfx) {
+            Remove-Item codesign.pfx -Force
+          }
+        shell: powershell
 
       - name: Create credits file
         run: |
@@ -85,6 +120,7 @@ jobs:
           SolidCompression=yes
           WizardStyle=modern
           PrivilegesRequired=admin
+          SignedUninstaller=yes
           
           [Languages]
           Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -152,14 +188,14 @@ jobs:
           path: installer/PrimeSync-Setup-${{ env.APP_VERSION }}.exe
 
       - name: Create Release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/prototype')
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
           name: PrimeSync v${{ env.APP_VERSION }}
           tag_name: v${{ env.APP_VERSION }}
           draft: false
-          prerelease: false
+          prerelease: ${{ github.ref == 'refs/heads/prototype' }}
           files: ./installer/PrimeSync-Setup-${{ env.APP_VERSION }}.exe
         env:
           GITHUB_TOKEN: ${{ secrets.TOKEN }}

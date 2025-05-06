@@ -13,6 +13,8 @@ hiddenimports = collect_submodules('zk') + [
     'notify_py',
     'PIL',
     'cryptography',
+    'cryptography.hazmat.primitives',
+    'cryptography.hazmat.bindings.openssl',
     'requests',
     'loguru',
     'certifi',
