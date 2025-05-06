@@ -195,6 +195,7 @@ class APIClient:
                             user_cloud_id=u.get("id"),
                             updated_at=now,
                             saved_to_device=False,
+                            device=self.device_repo.get(cloud_id=u.get("device")),
                         )
                         updated_u += 1
                     else:
@@ -208,8 +209,8 @@ class APIClient:
                             saved_to_device=False,
                             created_at=now,
                             updated_at=now,
-                            device=self.device_repo.get(cloud_id=u.get("device__id")),
-                            device_cloud_id=u.get("device__id"),
+                            device=self.device_repo.get(cloud_id=u.get("device")),
+                            device_cloud_id=u.get("device"),
                         )
                         created_u += 1
 
