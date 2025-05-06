@@ -186,8 +186,8 @@ class DeviceManager:
     def migrate_user_to_device(self) -> None:
         """Migrate users from database to connected devices."""
         self.logger.info("Starting user migration to devices")
-        devices = Device.select()
-        users = User.filter(saved_to_device=False)
+        devices = self.device_repo.get_all()
+        users = self.user_repo.filter(saved_to_device=False)
 
         if not devices:
             self.notification_service.notify(
@@ -222,9 +222,8 @@ class DeviceManager:
 
                     # TODO: implement this when server side multi device support is added
                     # db_users = User.filter(saved_to_device=False, device_cloud_id=device.id)
-                    db_users = User.filter(saved_to_device=False)
 
-                    for db_user in db_users:
+                    for db_user in users:
                         if db_user.user_id not in device_user_ids:
                             conn.set_user(
                                 uid=int(db_user.user_id),
