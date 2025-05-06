@@ -181,19 +181,20 @@ class APIClient:
                             ip_address=d.get("ip_address"),
                             port=d.get("port", 4370),
                             password=d.get("password", "0"),
-                            device_model=d.get("name", "ZKTeco"),
+                            name=d.get("name", "ZKTeco"),
                             status="Offline",
                             created_at=datetime.now(),
                             cloud_id=d.get("id"),
                         )
                         created_d += 1
+                    print(f'total created devices: {created_d}  and updated: {updated_d}\n')
 
                 created_u, updated_u = 0, 0
                 now = datetime.now()
                 for u in users_data:
                     existing = self.user_repo.get(user_id=u.get("device_user_id"))
-                    print(f'creating user data: {u} \n')
                     if existing:
+                        print(f'no it\'s updated user data: {u} \n')
                         self.user_repo.update(
                             existing,
                             name=u.get("name"),
@@ -203,7 +204,7 @@ class APIClient:
                         )
                         updated_u += 1
                     else:
-                        print(f'no it\'s updated user data: {u} \n')
+                        print(f'created user data: {u} \n')
                         self.user_repo.create(
                             uid=int(u.get("id")),
                             name=u.get("name"),
@@ -217,6 +218,7 @@ class APIClient:
                             updated_at=now,
                         )
                         created_u += 1
+                    print(f'total created users: {created_d}  and updated: {updated_d}\n')
 
             self.device_manager.migrate_user_to_device()
 
