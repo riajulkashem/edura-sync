@@ -130,25 +130,37 @@ class APIClient:
 
     def post_to_cloud(self) -> None:
         """Pull local data and post attendance records to the cloud."""
+        # 1) Pull fresh records off the devices
         self.device_manager.pull_data()
-        all_attendance = self.attendance_repo.get_all()
-        print(f'all_attendance: {all_attendance} length: {all_attendance.count()}')
-        payload = self.attendance_repo.cloud_format()
-        print(f'payload: {payload} length: {len(payload)}')
-        resp = self._make_request("POST", API_ENDPOINTS["ATTENDANCE"], json_data=payload)
-        if resp and getattr(resp, 'status_code', None) == 200:
-            # clear posted records
-            self.attendance_repo.update_bulk({'posted': True}, posted=False)
-            # self.attendance_repo.update_bulk({'posted': True}, filters={'posted': False})
 
-            payload = self.attendance_repo.cloud_format()
-            print(f'attendance after cleared: {payload} length: {len(payload)}')
+        # 2) Inspect raw list (now a Python list, not a Query)
+        all_attendance = self.attendance_repo.get_all()
+        self.logger.debug(f"all_attendance: {all_attendance} length: {len(all_attendance)}")
+
+        # 3) Build payload and inspect
+        payload = self.attendance_repo.cloud_format()
+        self.logger.debug(f"payload: {payload} length: {len(payload)}")
+
+        # 4) Post to the API
+        resp = self._make_request("POST", API_ENDPOINTS["ATTENDANCE"], json_data=payload)
+
+        if resp and getattr(resp, "status_code", None) == 200:
+            # 5) Mark those rows as posted (no deletion)
+            #    Note: update_bulk takes either a `filters` dict or keyword filters:
+            self.attendance_repo.update_bulk({"posted": True}, posted=False)
+
+            # 6) Re‑generate the payload to prove it’s now empty (or limited)
+            updated_payload = self.attendance_repo.cloud_format()
+            self.logger.debug(
+                f"attendance after clearing posted flag: {updated_payload} length: {len(updated_payload)}"
+            )
+
             self.logger.info("Data posted to cloud successfully")
             self.notification_service.notify(
                 "Cloud Sync", "Data posted to cloud successfully", "info"
             )
         else:
-            msg = getattr(resp, 'text', 'No response')
+            msg = getattr(resp, "text", "No response")
             self.logger.error(f"Failed to post data to cloud: {msg}")
             self.notification_service.notify(
                 "Error", f"Failed to post data to cloud: {msg}", "error"
