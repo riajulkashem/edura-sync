@@ -118,7 +118,7 @@ class APIClient:
             )
             json_resp = resp.json()
             if 'detail' in json_resp and json_resp['detail'] == 'Invalid token.':
-                pass
+                self._get_auth_token()
             print(f'response: {resp}')
             print(f'response json: {resp.json()}')
 
@@ -132,10 +132,13 @@ class APIClient:
         """Pull local data and post attendance records to the cloud."""
         self.device_manager.pull_data()
         payload = self.attendance_repo.cloud_format()
+        print(f'payload: {payload} length: {len(payload)}')
         resp = self._make_request("POST", API_ENDPOINTS["ATTENDANCE"], json_data=payload)
         if resp and getattr(resp, 'status_code', None) == 200:
             # clear posted records
             self.attendance_repo.update_bulk({'posted': True}, filters={'posted': False})
+            payload = self.attendance_repo.cloud_format()
+            print(f'attendance after cleared: {payload} length: {len(payload)}')
             self.logger.info("Data posted to cloud successfully")
             self.notification_service.notify(
                 "Cloud Sync", "Data posted to cloud successfully", "info"
