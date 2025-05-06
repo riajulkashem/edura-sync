@@ -56,6 +56,7 @@ jobs:
           echo "GitHub: https://github.com/riajulkashem" | Out-File -FilePath CREDITS.txt -Append -Encoding utf8
 
       - name: Create Inno Setup installer
+        shell: pwsh
         run: |
           echo "Creating Inno Setup script..."
           $innoScript = @"
@@ -66,7 +67,7 @@ jobs:
           #define MyAppExeName "PrimeSyncTrayApp.exe"
           
           [Setup]
-          AppId={{EA3FCF1E-0EB9-4DEA-AB7A-ADE3D2B7AAF8}
+          ; Removed malformed AppId to avoid certification errors
           AppName={#MyAppName}
           AppVersion={#MyAppVersion}
           AppPublisher={#MyAppPublisher}
@@ -115,19 +116,7 @@ jobs:
           Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "PrimeSync"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue
           "@
           
-          $innoScript | Out-File -FilePath ./installer.iss -Encoding utf8
-          
-          # Debug: List files
-          dir .
-          dir assets
-          dir dist\PrimeSyncTrayApp
-          
-          # Create LICENSE file
-          if (-not (Test-Path LICENSE)) {
-            "MIT License - Attendance synchronization system by Riajul Kashem" | Out-File -FilePath LICENSE -Encoding utf8
-          }
-          
-          # Convert PNG to ICO
+          # Convert PNG to ICO if needed
           if (-not (Test-Path assets/icon.ico)) {
             mkdir -Force assets
             if (-not (Test-Path assets/icon.png)) {
