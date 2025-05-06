@@ -138,7 +138,9 @@ class APIClient:
         resp = self._make_request("POST", API_ENDPOINTS["ATTENDANCE"], json_data=payload)
         if resp and getattr(resp, 'status_code', None) == 200:
             # clear posted records
-            self.attendance_repo.update_bulk({'posted': True}, filters={'posted': False})
+            self.attendance_repo.update_bulk({'posted': True}, posted=False)
+            # self.attendance_repo.update_bulk({'posted': True}, filters={'posted': False})
+
             payload = self.attendance_repo.cloud_format()
             print(f'attendance after cleared: {payload} length: {len(payload)}')
             self.logger.info("Data posted to cloud successfully")
