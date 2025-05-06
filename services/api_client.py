@@ -164,7 +164,6 @@ class APIClient:
                 for d in devices_data:
                     existing = self.device_repo.get(cloud_id=d.get("id"))
                     if existing:
-                        print(f'updated device data: {d} \n')
                         self.device_repo.update(
                             existing,
                             ip_address=d.get("ip_address"),
@@ -175,7 +174,6 @@ class APIClient:
                         )
                         updated_d += 1
                     else:
-                        print(f'creating device data: {d} \n')
                         self.device_repo.create(
                             ip_address=d.get("ip_address"),
                             port=d.get("port", 4370),
@@ -186,14 +184,11 @@ class APIClient:
                             cloud_id=d.get("id"),
                         )
                         created_d += 1
-                    print(f'total created devices: {created_d}  and updated: {updated_d}\n')
 
                 created_u, updated_u = 0, 0
                 now = datetime.now()
                 for u in users_data:
-                    existing = self.user_repo.get(user_id=u.get("device_user_id"))
                     if existing:
-                        print(f'updated user data: {u} \n')
                         self.user_repo.update(
                             existing,
                             name=u.get("name"),
@@ -203,7 +198,6 @@ class APIClient:
                         )
                         updated_u += 1
                     else:
-                        print(f'created user data: {u} \n')
                         self.user_repo.create(
                             name=u.get("name"),
                             role=0,
@@ -218,7 +212,6 @@ class APIClient:
                             device_cloud_id=u.get("device__id"),
                         )
                         created_u += 1
-                    print(f'total created users: {created_d}  and updated: {updated_d}\n')
 
             self.device_manager.migrate_user_to_device()
 

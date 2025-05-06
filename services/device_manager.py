@@ -55,11 +55,11 @@ class DeviceManager:
     """
 
     def __init__(
-            self,
-            notification_service: NotificationService,
-            device_repo: DeviceRepository,
-            user_repo: UserRepository,
-            attendance_repo: AttendanceRepository,
+        self,
+        notification_service: NotificationService,
+        device_repo: DeviceRepository,
+        user_repo: UserRepository,
+        attendance_repo: AttendanceRepository,
     ):
         self.notification_service = notification_service
         self.device_repo = device_repo
@@ -80,7 +80,6 @@ class DeviceManager:
             for device in devices:
                 try:
                     conn = DeviceConnectionFactory.create_connection(device)
-                    # mark online and persist
                     self.device_repo.update(device, status="Online")
                     online_count += 1
                     conn.disconnect()
@@ -88,7 +87,6 @@ class DeviceManager:
                         f"Checked device {device.ip_address}: Online"
                     )
                 except DeviceConnectionError:
-                    # mark offline and persist
                     self.device_repo.update(device, status="Offline")
                     self.logger.info(
                         f"Checked device {device.ip_address}: Offline"
@@ -117,7 +115,6 @@ class DeviceManager:
                     total = len(attendances)
 
                     for att in attendances:
-                        # skip duplicate records via repository
                         existing = self.attendance_repo.filter(
                             user_id=att.user_id,
                             timestamp=att.timestamp,
@@ -158,7 +155,6 @@ class DeviceManager:
         """Migrate users from the database to connected devices."""
         self.logger.info("Starting user migration to devices")
         devices = self.device_repo.get_all()
-
         total_users = 0
         devices_updated = 0
 
@@ -166,10 +162,16 @@ class DeviceManager:
             try:
                 conn = DeviceConnectionFactory.create_connection(device)
                 conn.disable_device()
-                print(f'device connected: {device.ip_address}')
-                users = self.user_repo.filter(saved_to_device=False, device=device.id)
-                print(f'users without device filter {self.user_repo.model.filter(saved_to_device=False)}')
-                print(f'users to migrate: {len(users)}')
+                self.logger.debug(f"Device connected: {device.ip_address}")
+
+                # Fetch users not yet saved to this device
+                users = self.user_repo.filter(
+                    saved_to_device=False,
+                    device=device.id,
+                )
+
+                self.logger.debug(f"{users.count()} users to migrate for device {device.ip_address}")
+
                 migrated = 0
                 for user in users:
                     conn.set_user(
@@ -205,7 +207,6 @@ class DeviceManager:
                     f"Failed to sync users to {device.ip_address}: {e}"
                 )
 
-        # Notify results
         if total_users:
             self.notification_service.notify(
                 "Users Synced",
@@ -228,8 +229,8 @@ class DeviceManager:
         conn = None
         try:
             conn = zk.connect()
-            conn.disable_device()  # prevent user activity during the operation
-            success = conn.clear_attendance()  # returns True if cleared successfully
+            conn.disable_device()
+            success = conn.clear_attendance()
             conn.enable_device()
             return success
         except Exception as e:
@@ -274,7 +275,6 @@ class DeviceManager:
             try:
                 conn = DeviceConnectionFactory.create_connection(device)
                 conn.disable_device()
-                # clear_data will remove users, templates, and attendance logs
                 success = conn.clear_data()
                 conn.enable_device()
                 if success:
