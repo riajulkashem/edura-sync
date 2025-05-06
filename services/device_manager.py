@@ -188,7 +188,7 @@ class DeviceManager:
         self.logger.info("Starting user migration to devices")
         devices = self.device_repo.get_all()
         users = self.user_repo.filter(saved_to_device=False)
-
+        print(users)
         if not devices:
             self.notification_service.notify(
                 "Sync Users",
