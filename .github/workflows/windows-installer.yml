@@ -2,9 +2,9 @@ name: Build Windows Installer
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, prototype ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, prototype ]
   workflow_dispatch:
 
 jobs:
@@ -47,7 +47,7 @@ jobs:
 
       - name: Verify PyInstaller output
         run: |
-          dir dist\PrimeSyncTrayApp || (echo "PyInstaller output missing" && exit 1)
+          dir dist\\PrimeSyncTrayApp || (echo "PyInstaller output missing" && exit 1)
 
       - name: Create credits file
         run: |
@@ -67,21 +67,20 @@ jobs:
           #define MyAppExeName "PrimeSyncTrayApp.exe"
           
           [Setup]
-          ; Removed malformed AppId to avoid certification errors
           AppName={#MyAppName}
           AppVersion={#MyAppVersion}
           AppPublisher={#MyAppPublisher}
           AppPublisherURL={#MyAppURL}
           AppSupportURL={#MyAppURL}
           AppUpdatesURL={#MyAppURL}
-          DefaultDirName={autopf}\{#MyAppName}
+          DefaultDirName={autopf}\\{#MyAppName}
           DefaultGroupName={#MyAppName}
           DisableProgramGroupPage=yes
           LicenseFile=LICENSE
           InfoBeforeFile=CREDITS.txt
           OutputDir=installer
           OutputBaseFilename={#MyAppName}-Setup-{#MyAppVersion}
-          SetupIconFile=assets\icon.ico
+          SetupIconFile=assets\\icon.ico
           Compression=lzma
           SolidCompression=yes
           WizardStyle=modern
@@ -95,25 +94,25 @@ jobs:
           Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked; OnlyBelowVersion: 6.1; Check: not IsAdminInstallMode
           
           [Files]
-          Source: "dist\PrimeSyncTrayApp\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+          Source: "dist\\PrimeSyncTrayApp\\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
           Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
           Source: "CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
           
           [Dirs]
-          Name: "{app}\data"; Permissions: users-modify
-          Name: "{app}\logs"; Permissions: users-modify
+          Name: "{app}\\data"; Permissions: users-modify
+          Name: "{app}\\logs"; Permissions: users-modify
           
           [Icons]
-          Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-          Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
-          Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
-          Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: quicklaunchicon
+          Name: "{group}\\{#MyAppName}"; Filename: "{app}\\{#MyAppExeName}"
+          Name: "{group}\\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
+          Name: "{autodesktop}\\{#MyAppName}"; Filename: "{app}\\{#MyAppExeName}"; Tasks: desktopicon
+          Name: "{userappdata}\\Microsoft\\Internet Explorer\\Quick Launch\\{#MyAppName}"; Filename: "{app}\\{#MyAppExeName}"; Tasks: quicklaunchicon
           
           [Run]
-          Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+          Filename: "{app}\\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
           
           [Registry]
-          Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "PrimeSync"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue
+          Root: HKLM; Subkey: "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"; ValueType: string; ValueName: "PrimeSync"; ValueData: """{app}\\{#MyAppExeName}"""; Flags: uninsdeletevalue
           "@
           
           # Convert PNG to ICO if needed
@@ -128,7 +127,7 @@ jobs:
           
           # Run Inno Setup compiler
           mkdir -Force installer
-          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' installer.iss
+          & 'C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe' installer.iss
 
       - name: Debug installer files
         run: |
@@ -141,14 +140,14 @@ jobs:
           path: installer/PrimeSync-Setup-${{ env.APP_VERSION }}.exe
 
       - name: Create Release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/prototype')
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
           name: PrimeSync v${{ env.APP_VERSION }}
           tag_name: v${{ env.APP_VERSION }}
           draft: false
-          prerelease: false
+          prerelease: ${{ github.ref == 'refs/heads/prototype' }}
           files: ./installer/PrimeSync-Setup-${{ env.APP_VERSION }}.exe
         env:
           GITHUB_TOKEN: ${{ secrets.TOKEN }}
