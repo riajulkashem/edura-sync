@@ -52,6 +52,14 @@ jobs:
           echo "Developed by Riajul Kashem, Software Engineer" | Out-File -FilePath CREDITS.txt -Append -Encoding utf8
           echo "GitHub: https://github.com/riajulkashem" | Out-File -FilePath CREDITS.txt -Append -Encoding utf8
 
+      - name: Build License check
+        shell: pwsh
+        run: |
+          if (-not (Test-Path LICENSE)) {
+            Write-Error "LICENSE file missing! Please add your commercial LICENSE to the repo root."
+            exit 1
+          }
+
       - name: Create Inno Setup installer
         shell: pwsh
         run: |
@@ -116,9 +124,9 @@ jobs:
           $innoScript | Out-File -FilePath installer.iss -Encoding utf8
 
           # Convert PNG to ICO if needed
-          if (-not (Test-Path assets\icon.ico)) {
+          if (-not (Test-Path assets\\icon.ico)) {
             mkdir assets -Force
-            if (-not (Test-Path assets\icon.png)) {
+            if (-not (Test-Path assets\\icon.png)) {
               throw "assets/icon.png not found"
             }
             pip install pillow
