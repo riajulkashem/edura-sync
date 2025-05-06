@@ -131,28 +131,17 @@ class DeviceManager:
                     # Pull users
                     users = zk.get_users()
                     user_count = len(users)
-                    for zk_user in users:
-                        self.user_repo.model.get_or_create(
-                            uid=zk_user.uid,
-                            defaults={
-                                "name": zk_user.name,
-                                "role": zk_user.privilege,
-                                "password": zk_user.password,
-                                "group_id": zk_user.group_id,
-                                "user_id": zk_user.user_id,
-                                "card": zk_user.card,
-                                "device": device,
-                                "created_at": datetime.now(),
-                                "updated_at": datetime.now(),
-                            },
-                        )
 
                     # Pull attendance records
                     attendances = zk.get_attendance()
                     attendance_count = len(attendances)
+                    print(attendances)
+                    print(attendance_count)
+                    print(self.attendance_repo.count())
                     for att in attendances:
-                        user = self.user_repo.get(id=att.user_id)
-                        if user:
+                        user = self.user_repo.get(user_id=att.user_id)
+                        db_att = self.attendance_repo.get(user_id=att.user_id,timestamp=att.timestamp, status=att.status)
+                        if user and not db_att:
                             self.attendance_repo.create(
                                 user=user,
                                 timestamp=att.timestamp,
@@ -161,6 +150,7 @@ class DeviceManager:
                                 uid=att.user_id,
                                 created_at=datetime.now(),
                             )
+                        print(f'skipping due exist {att}')
 
                     zk.disconnect()
                     self.logger.info(
@@ -215,7 +205,8 @@ class DeviceManager:
                 conn = zk.connect()
                 device_users = conn.get_users()
                 device_user_ids = [d.user_id for d in device_users]
-
+                print('Connected to device: ', device.ip_address)
+                print('existing users in device: ', conn.get_users())
                 if conn:
                     users_migrated = 0
                     conn.disable_device()
@@ -225,13 +216,14 @@ class DeviceManager:
 
                     for db_user in users:
                         if db_user.user_id not in device_user_ids:
+                            print(f'db user info user_id: {db_user.user_id} name: {db_user.name}')
                             conn.set_user(
                                 uid=int(db_user.user_id),
                                 name=db_user.name,
-                                privilege=db_user.role,
-                                password="",
-                                group_id=0,
-                                user_id=db_user.user_id,
+                                privilege=0,
+                                group_id='',
+                                user_id=str(db_user.user_id),
+                                card=0
                             )
                             db_user.saved_to_device = True
                             db_user.save()

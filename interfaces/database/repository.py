@@ -19,8 +19,6 @@ class Repository:
         try:
             return self.model.get(**filters)
         except DoesNotExist:
-            return None
-        except MultipleObjectsReturned:
             return None  # Return None if multiple records are found
         except Exception as e:
             print(e)

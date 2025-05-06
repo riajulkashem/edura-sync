@@ -75,7 +75,7 @@ class Device(BaseModel):
 class User(BaseModel):
     uid = IntegerField(primary_key=True)
     name = CharField(max_length=100)
-    role = IntegerField(help_text="Privilege level on the device")
+    role = IntegerField(help_text="Privilege level on the device", default=0)
     password = CharField(max_length=128, null=True)
     group_id = IntegerField(null=True)
     user_id = CharField(
