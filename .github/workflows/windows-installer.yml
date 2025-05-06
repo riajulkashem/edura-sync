@@ -21,12 +21,10 @@ jobs:
           cache: 'pip'
 
       - name: Clear pip cache
-        run: |
-          pip cache purge
+        run: pip cache purge
 
       - name: Install Inno Setup
-        run: |
-          choco install innosetup --version=6.2.2 --force -y
+        run: choco install innosetup --version=6.2.2 --force -y
 
       - name: Install dependencies
         run: |
@@ -42,8 +40,7 @@ jobs:
           echo "version = '$version'" | Out-File -FilePath ./core/version.py -Encoding utf8
 
       - name: Build with PyInstaller
-        run: |
-          pyinstaller --clean --noconfirm primesync.spec
+        run: pyinstaller --clean --noconfirm primesync.spec
 
       - name: Verify PyInstaller output
         run: |
@@ -65,7 +62,7 @@ jobs:
           #define MyAppPublisher "Riajul Kashem"
           #define MyAppURL "https://github.com/riajulkashem/prime-sync"
           #define MyAppExeName "PrimeSyncTrayApp.exe"
-          
+
           [Setup]
           AppName={#MyAppName}
           AppVersion={#MyAppVersion}
@@ -85,48 +82,51 @@ jobs:
           SolidCompression=yes
           WizardStyle=modern
           PrivilegesRequired=admin
-          
+
           [Languages]
           Name: "english"; MessagesFile: "compiler:Default.isl"
-          
+
           [Tasks]
           Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
           Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked; OnlyBelowVersion: 6.1; Check: not IsAdminInstallMode
-          
+
           [Files]
           Source: "dist\\PrimeSyncTrayApp\\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
           Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
           Source: "CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
-          
+
           [Dirs]
           Name: "{app}\\data"; Permissions: users-modify
           Name: "{app}\\logs"; Permissions: users-modify
-          
+
           [Icons]
           Name: "{group}\\{#MyAppName}"; Filename: "{app}\\{#MyAppExeName}"
           Name: "{group}\\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
           Name: "{autodesktop}\\{#MyAppName}"; Filename: "{app}\\{#MyAppExeName}"; Tasks: desktopicon
           Name: "{userappdata}\\Microsoft\\Internet Explorer\\Quick Launch\\{#MyAppName}"; Filename: "{app}\\{#MyAppExeName}"; Tasks: quicklaunchicon
-          
+
           [Run]
           Filename: "{app}\\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
-          
+
           [Registry]
           Root: HKLM; Subkey: "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"; ValueType: string; ValueName: "PrimeSync"; ValueData: """{app}\\{#MyAppExeName}"""; Flags: uninsdeletevalue
           "@
-          
+
+          # Write the script out
+          $innoScript | Out-File -FilePath installer.iss -Encoding utf8
+
           # Convert PNG to ICO if needed
-          if (-not (Test-Path assets/icon.ico)) {
-            mkdir -Force assets
-            if (-not (Test-Path assets/icon.png)) {
+          if (-not (Test-Path assets\icon.ico)) {
+            mkdir assets -Force
+            if (-not (Test-Path assets\icon.png)) {
               throw "assets/icon.png not found"
             }
             pip install pillow
             python -c "from PIL import Image; img = Image.open('assets/icon.png'); img.save('assets/icon.ico')"
           }
-          
+
           # Run Inno Setup compiler
-          mkdir -Force installer
+          mkdir installer -Force
           & 'C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe' installer.iss
 
       - name: Debug installer files
