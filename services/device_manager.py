@@ -113,13 +113,14 @@ class DeviceManager:
 
                     attendances = conn.get_attendance()
                     total = len(attendances)
-
+                    print(f'device pull attendances: {attendances} length: {len(attendances)}')
                     for att in attendances:
                         existing = self.attendance_repo.filter(
                             user_id=att.user_id,
                             timestamp=att.timestamp,
                             status=att.status,
                         )
+                        print(f'existing: {existing} for attendance: {att} length: {len(existing)}')
                         if not existing:
                             self.attendance_repo.create(
                                 user_id=att.user_id,
