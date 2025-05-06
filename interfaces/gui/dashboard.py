@@ -485,7 +485,7 @@ class DashboardGUI:
 
             # Device info
             ttk.Label(
-                device_frame, text=f"{device.device_model} ({device.ip_address})"
+                device_frame, text=f"{device.name} ({device.ip_address})"
             ).grid(row=0, column=1, sticky="w")
             ttk.Label(device_frame, text=device.status).grid(row=0, column=2, padx=10)
 

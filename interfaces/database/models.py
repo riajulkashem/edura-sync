@@ -71,7 +71,7 @@ class Device(BaseModel):
     ip_address = CharField(max_length=15, help_text="IPv4 address of the device")
     port = IntegerField(default=DEVICE_DEFAULTS["PORT"])
     password = CharField(max_length=32, default=DEVICE_DEFAULTS["PASSWORD"])
-    device_model = CharField(max_length=50)
+    name = CharField(max_length=50)
     status = CharField(max_length=20, default=DEVICE_DEFAULTS["STATUS"])
     created_at = DateTimeField(default=datetime.now)
     cloud_id = IntegerField(null=True)
