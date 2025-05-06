@@ -167,7 +167,8 @@ class DeviceManager:
                 conn = DeviceConnectionFactory.create_connection(device)
                 conn.disable_device()
                 print(f'device connected: {device.ip_address}')
-                users = self.user_repo.filter(saved_to_device=False, device=device)
+                users = self.user_repo.filter(saved_to_device=False, device=device.id)
+                print(f'users without device filter {self.user_repo.filter(saved_to_device=False)}')
                 print(f'users to migrate: {len(users)}')
                 migrated = 0
                 for user in users:
