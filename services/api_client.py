@@ -214,6 +214,8 @@ class APIClient:
                             saved_to_device=False,
                             created_at=now,
                             updated_at=now,
+                            device=self.device_repo.get(cloud_id=u.get("device__id")),
+                            device_cloud_id=u.get("device__id"),
                         )
                         created_u += 1
                     print(f'total created users: {created_d}  and updated: {updated_d}\n')
