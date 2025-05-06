@@ -158,14 +158,13 @@ class AttendanceRepository(Repository):
         """Return attendance records in a cloud-friendly format."""
         records = []
         for att in self.filter(posted=False):
-            if att.user and att.user.user_cloud_id:
-                records.append({
-                    "device_id": att.device_id,
-                    "timestamp": att.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-                    "punch": att.punch,
-                    "status": att.status,
-                    "user_id": att.user_id,
-                })
+            records.append({
+                "device_id": att.device_id,
+                "timestamp": att.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                "punch": att.punch,
+                "status": att.status,
+                "user_id": att.user_id,
+            })
         return records
 
 

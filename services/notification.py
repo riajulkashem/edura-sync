@@ -54,16 +54,14 @@ class NotificationService:
             notification_type: Type of notification (info, error, warning)
         """
         try:
-            self.logger.info(
-                f"[{self._get_timestamp()}] PrimeSync - {title}: {message}"
-            )
-            self.logger.info(f"Sending notification: PrimeSync - {title} - {message}")
-
             if NOTIFY_AVAILABLE:
-                notification = Notify()
-                notification.default_notification_application_name = "PrimeSync"
-                notification.title = f"{title}"
-                notification.message = message
+                notification = Notify(
+                    default_notification_title=title,
+                    default_notification_message=message,
+                    default_notification_application_name="PrimeSync",
+                    default_notification_urgency='normal',
+                    default_notification_icon=self.icon_path,
+                )
 
                 # Set the icon if available
                 if self.icon_path:
@@ -82,15 +80,6 @@ class NotificationService:
                     notification.application_name = "PrimeSync"
 
                 notification.send(block=False)
-            else:
-                # Fallback to logging only if no notification system is available
-                self.logger.warning(
-                    "Unable to show notification - notify-py not available"
-                )
-
-            self.logger.info(
-                f"Notification sent successfully: PrimeSync - {title} - {message}"
-            )
         except Exception as e:
             self.logger.error(f"Failed to send notification: {e}")
 
