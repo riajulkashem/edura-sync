@@ -131,6 +131,8 @@ class APIClient:
     def post_to_cloud(self) -> None:
         """Pull local data and post attendance records to the cloud."""
         self.device_manager.pull_data()
+        all_attendance = self.attendance_repo.get_all()
+        print(f'all_attendance: {all_attendance} length: {all_attendance.count()}')
         payload = self.attendance_repo.cloud_format()
         print(f'payload: {payload} length: {len(payload)}')
         resp = self._make_request("POST", API_ENDPOINTS["ATTENDANCE"], json_data=payload)
