@@ -119,7 +119,6 @@ class APIClient:
             json_resp = resp.json()
             if 'detail' in json_resp and json_resp['detail'] == 'Invalid token.':
                 self._get_auth_token()
-            print(f'response: {resp}')
             print(f'response json: {resp.json()}')
 
             resp.raise_for_status()

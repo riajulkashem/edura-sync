@@ -282,9 +282,7 @@ if __name__ == "__main__":
         print("Starting PrimeSync application...")
         app.run()
     except KeyboardInterrupt:
-        print("Application terminated by user")
         app.exit_app()
     except Exception as e:
-        print(f"Critical error: {e}")
         logging.error(f"Critical error: {e}", exc_info=True)
         app.exit_app()

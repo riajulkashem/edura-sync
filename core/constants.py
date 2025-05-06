@@ -36,7 +36,7 @@ API_ENDPOINTS = {
 
 # UI configuration
 UI_CONFIG = {
-    "DASHBOARD_SIZE": "550x550",
+    "DASHBOARD_SIZE": "550x750",
     "DEFAULT_FONT": ("Helvetica", 12),
     "HEADER_FONT": ("Helvetica", 14, "bold"),
     "SMALL_FONT": ("Helvetica", 10),
