@@ -3,14 +3,19 @@ from datetime import datetime
 import logging
 from pathlib import Path
 
-from peewee import *
-
-from core.constants import (
-    DEFAULT_DB_NAME,
-    DB_PRAGMAS,
-    TABLE_NAMES,
-    DEVICE_DEFAULTS
+from peewee import (
+    SqliteDatabase,
+    Model,
+    AutoField,
+    CharField,
+    IntegerField,
+    DateTimeField,
+    ForeignKeyField,
+    BooleanField,
+    TimeField,
 )
+
+from core.constants import DEFAULT_DB_NAME, DB_PRAGMAS, TABLE_NAMES, DEVICE_DEFAULTS
 
 
 # Create a logger
@@ -60,6 +65,7 @@ class BaseModel(Model):
     class Meta:
         database = db
 
+
 class Device(BaseModel):
     id = AutoField()
     ip_address = CharField(max_length=15, help_text="IPv4 address of the device")
@@ -68,16 +74,18 @@ class Device(BaseModel):
     device_model = CharField(max_length=50)
     status = CharField(max_length=20, default=DEVICE_DEFAULTS["STATUS"])
     created_at = DateTimeField(default=datetime.now)
+    cloud_id = IntegerField(null=True)
 
     class Meta:
         table_name = TABLE_NAMES["DEVICES"]
 
+
 class User(BaseModel):
     uid = IntegerField(primary_key=True)
     name = CharField(max_length=100)
-    role = IntegerField(help_text="Privilege level on the device")
-    password = CharField(max_length=128, null=True)
-    group_id = IntegerField(null=True)
+    role = IntegerField(help_text="Privilege level on the device", default=0)
+    password = CharField(max_length=128, null=True, default="")
+    group_id = CharField(null=True, default="")
     user_id = CharField(
         max_length=50, unique=True, help_text="Application-specific user ID"
     )
@@ -92,9 +100,11 @@ class User(BaseModel):
     class Meta:
         table_name = TABLE_NAMES["USERS"]
 
+
 class Attendance(BaseModel):
     id = AutoField()
-    user = ForeignKeyField(User, backref="attendances")
+    user_id = IntegerField(help_text="User ID")
+    device_id = IntegerField(help_text="Device ID")
     timestamp = DateTimeField()
     status = CharField(max_length=20, help_text="Attendance status code")
     punch = CharField(max_length=20, help_text="Punch type (e.g., IN, OUT)")
@@ -105,14 +115,15 @@ class Attendance(BaseModel):
     class Meta:
         table_name = TABLE_NAMES["ATTENDANCE"]
 
+
 class Settings(BaseModel):
     cloud_api_url = CharField(default="")
     username = CharField(default="")
     password = CharField(default="", help_text="Encrypted password")
     institute_id = CharField(default="")
     auth_token = CharField(default="", null=True)
-    in_time_process = TimeField(null=True)
-    out_time_process = TimeField(null=True)
+    process_time = TimeField(null=True)
+    is_scheduler_enabled = BooleanField(default=False)
     last_sync = DateTimeField(null=True)
     last_post = DateTimeField(null=True)
     attendance_pending = IntegerField(default=0)

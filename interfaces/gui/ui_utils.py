@@ -6,7 +6,7 @@ Utility functions for creating consistent UI components.
 import tkinter as tk
 from tkinter import ttk
 import logging
-from typing import Dict, Any, Callable
+from typing import Callable
 from PIL import Image, ImageTk
 
 from core.constants import UI_CONFIG
@@ -48,7 +48,12 @@ def setup_styles() -> ttk.Style:
     style.configure("Error.TLabel", foreground="red")
     style.configure("Info.TLabel", foreground="blue")
     style.configure("Credits.TLabel", font=UI_CONFIG["DEFAULT_FONT"], padding=5)
-    style.configure("CreditsLink.TLabel", font=UI_CONFIG["DEFAULT_FONT"], foreground="blue", padding=5)
+    style.configure(
+        "CreditsLink.TLabel",
+        font=UI_CONFIG["DEFAULT_FONT"],
+        foreground="blue",
+        padding=5,
+    )
     return style
 
 
@@ -115,16 +120,12 @@ def create_button(parent, text: str, command: Callable, padding: int = 8) -> ttk
     Returns:
         ttk.Button: Configured button
     """
-    return ttk.Button(
-        parent,
-        text=text,
-        command=command,
-        padding=padding
-    )
+    return ttk.Button(parent, text=text, command=command, padding=padding)
 
 
-def create_labeled_entry(parent, label_text: str, row: int,
-                         show: str = None, width: int = 40) -> ttk.Entry:
+def create_labeled_entry(
+    parent, label_text: str, row: int, show: str = None, width: int = 40
+) -> ttk.Entry:
     """
     Create a labeled entry field.
 
@@ -139,19 +140,9 @@ def create_labeled_entry(parent, label_text: str, row: int,
         ttk.Entry: Entry widget
     """
     ttk.Label(parent, text=label_text).grid(
-        row=row,
-        column=0,
-        sticky='w',
-        pady=5,
-        padx=5
+        row=row, column=0, sticky="w", pady=5, padx=5
     )
 
     entry = ttk.Entry(parent, width=width, show=show)
-    entry.grid(
-        row=row,
-        column=1,
-        sticky='we',
-        pady=5,
-        padx=5
-    )
+    entry.grid(row=row, column=1, sticky="we", pady=5, padx=5)
     return entry

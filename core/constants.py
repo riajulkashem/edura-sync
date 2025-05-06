@@ -15,15 +15,15 @@ DEVELOPER = {
     "DESIGNATION": "Software Engineer",
     "FACEBOOK": "facebook.com/riajul.kashem",
     "GITHUB": "riajulkashem",
-    "LINKEDIN": "riajulkashem"
+    "LINKEDIN": "riajulkashem",
 }
 
 # Database configuration
 DEFAULT_DB_NAME = "primesync.db"
 DB_PRAGMAS = {
-    'journal_mode': 'wal',  # Write-Ahead Logging for better concurrency
-    'foreign_keys': 1,      # Enable foreign key support
-    'cache_size': -1024*64  # 64MB cache size
+    "journal_mode": "wal",  # Write-Ahead Logging for better concurrency
+    "foreign_keys": 1,  # Enable foreign key support
+    "cache_size": -1024 * 64,  # 64MB cache size
 }
 
 # API endpoints
@@ -31,19 +31,17 @@ API_ENDPOINTS = {
     "TOKEN": "/api/token/",
     "INFO": "/api/info/",
     "SYNC": "/api/sync/",
-    "ATTENDANCE": "/api/attendance/"
+    "ATTENDANCE": "/api/attendance/",
 }
 
 # UI configuration
 UI_CONFIG = {
-    "DASHBOARD_SIZE": "600x650",
-    "SETTINGS_SIZE": "500x550",
-    "DEFAULT_PADDING": 10,
+    "DASHBOARD_SIZE": "550x550",
     "DEFAULT_FONT": ("Helvetica", 12),
     "HEADER_FONT": ("Helvetica", 14, "bold"),
     "SMALL_FONT": ("Helvetica", 10),
     "DEFAULT_ICON_SIZE": (64, 64),
-    "DEFAULT_ICON_COLOR": "blue"
+    "DEFAULT_ICON_COLOR": "blue",
 }
 
 # Status messages
@@ -53,7 +51,7 @@ STATUS_MESSAGES = {
     "CONNECTION_CHECKING": "Checking connection...",
     "SETTINGS_SAVED": "Settings saved successfully",
     "SETTINGS_RESET": "Settings reset. Enter new values and save.",
-    "FILL_ALL_FIELDS": "Please fill all fields"
+    "FILL_ALL_FIELDS": "Please fill all fields",
 }
 
 # Status colors
@@ -62,7 +60,7 @@ STATUS_COLORS = {
     "SUCCESS": "green",
     "WARNING": "orange",
     "ERROR": "red",
-    "NEUTRAL": "gray"
+    "NEUTRAL": "gray",
 }
 
 # Table names
@@ -71,7 +69,7 @@ TABLE_NAMES = {
     "USERS": "users",
     "ATTENDANCE": "attendance_logs",
     "SETTINGS": "settings",
-    "SCHEDULES": "schedules"
+    "SCHEDULES": "schedules",
 }
 
 # Device settings
@@ -79,7 +77,7 @@ DEVICE_DEFAULTS = {
     "PORT": 4370,
     "PASSWORD": "0",
     "MODEL": "ZKTeco",
-    "STATUS": "Offline"
+    "STATUS": "Offline",
 }
 
 # Menu items
@@ -91,7 +89,7 @@ MENU_ITEMS = {
     "DASHBOARD": "Dashboard",
     "SETTINGS": "Settings",
     "EXIT": "Exit",
-    "QUIT": "Quit"
+    "QUIT": "Quit",
 }
 
 # Log messages
@@ -101,7 +99,7 @@ LOG_MESSAGES = {
     "DASHBOARD_DISPLAYED": "Dashboard displayed successfully",
     "SETTINGS_SAVED": "Settings saved successfully",
     "TRAY_STARTED": "System tray thread started",
-    "APP_SHUTDOWN": "Application shutdown completed"
+    "APP_SHUTDOWN": "Application shutdown completed",
 }
 
 # Settings fields
@@ -109,5 +107,5 @@ DEFAULT_SETTING = {
     "CLOUD_API_URL": "http://localhost:8000",
     "USERNAME": "Username",
     "PASSWORD": "Password",
-    "INSTITUTE_ID": "Institute ID"
+    "INSTITUTE_ID": "Institute ID",
 }

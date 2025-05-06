@@ -1,5 +1,5 @@
 import logging
-from typing import Optional, Callable, Any
+from typing import Optional, Callable
 import pystray
 from PIL import Image
 
@@ -11,13 +11,13 @@ class SystemTray:
     """
 
     def __init__(
-            self,
-            app,
-            config,
-            device_manager,
-            api_client,
-            dashboard_gui,
-            notification_service,
+        self,
+        app,
+        config,
+        device_manager,
+        api_client,
+        dashboard_gui,
+        notification_service,
     ):
         """
         Initialize the system tray with dependencies.
@@ -85,7 +85,8 @@ class SystemTray:
                     ),
                 ),
                 pystray.MenuItem(
-                    "Sync Data", self._run_action(self.api_client.sync_data, "Sync Data")
+                    "Sync Data",
+                    self._run_action(self.api_client.sync_data, "Sync Data"),
                 ),
                 pystray.MenuItem(
                     "Post Cloud",
@@ -102,7 +103,8 @@ class SystemTray:
                 pystray.MenuItem(
                     "Sync Device",
                     self._run_action(
-                        self.device_manager.migrate_user_to_device, "Push User Data To Machine"
+                        self.device_manager.migrate_user_to_device,
+                        "Push User Data To Machine",
                     ),
                 ),
                 pystray.MenuItem(

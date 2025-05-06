@@ -49,9 +49,7 @@ class PrimeSync:
         # Initialize database
         db_instance = DatabaseFactory.get_database(str(self.config.DB_PATH))
         db_instance.connect()
-        db_instance.create_tables(
-            [Device, User, Attendance, Settings], safe=True
-        )
+        db_instance.create_tables([Device, User, Attendance, Settings], safe=True)
         db_instance.close()
         self.logger.info(LOG_MESSAGES["DB_INITIALIZED"])
 
@@ -75,7 +73,7 @@ class PrimeSync:
             self.notification_service,
             self.settings_repo,
             self.attendance_repo,
-            self.device_manager
+            self.device_manager,
         )
 
         # Initialize GUI components
@@ -89,7 +87,7 @@ class PrimeSync:
             self.notification_service,
             self.settings_repo,
             self.api_client,
-            self.security
+            self.security,
         )
 
         # In the PrimeSync.__init__ method, after initializing dashboard_gui
@@ -121,11 +119,13 @@ class PrimeSync:
             if settings is None:
                 # Create default settings if none exist
                 self.settings_repo.save_settings(**DEFAULT_SETTING)
-                self.logger.info("Created default settings - please update them in the dashboard")
+                self.logger.info(
+                    "Created default settings - please update them in the dashboard"
+                )
                 self.notification_service.notify(
                     "Settings",
                     "Default settings created. Please update them in the dashboard.",
-                    "info"
+                    "info",
                 )
 
             # Update API client with settings
@@ -142,7 +142,7 @@ class PrimeSync:
             self.notification_service.notify(
                 "Error",
                 f"Failed to load settings: {str(e)}. Please update settings in the dashboard.",
-                "error"
+                "error",
             )
 
     def _add_to_startup(self) -> None:
@@ -152,10 +152,10 @@ class PrimeSync:
             import platform
             import sys
 
-            if platform.system() == 'Windows':
+            if platform.system() == "Windows":
                 # Windows autostart is handled by the installer (registry)
                 pass
-            elif platform.system() == 'Darwin':  # macOS
+            elif platform.system() == "Darwin":  # macOS
                 import plistlib
 
                 # Create a macOS LaunchAgent plist file
@@ -165,9 +165,11 @@ class PrimeSync:
                 if not os.path.exists(launch_agents_dir):
                     os.makedirs(launch_agents_dir)
 
-                plist_path = os.path.join(launch_agents_dir, "com.primesync.trayapp.plist")
+                plist_path = os.path.join(
+                    launch_agents_dir, "com.primesync.trayapp.plist"
+                )
 
-                if getattr(sys, 'frozen', False):
+                if getattr(sys, "frozen", False):
                     # Running as compiled app
                     executable_path = sys.executable
                 else:
@@ -177,13 +179,13 @@ class PrimeSync:
                     executable_path = f"{executable_path} {script_path}"
 
                 plist_content = {
-                    'Label': 'com.primesync.trayapp',
-                    'ProgramArguments': [executable_path],
-                    'RunAtLoad': True,
-                    'KeepAlive': False,
+                    "Label": "com.primesync.trayapp",
+                    "ProgramArguments": [executable_path],
+                    "RunAtLoad": True,
+                    "KeepAlive": False,
                 }
 
-                with open(plist_path, 'wb') as f:
+                with open(plist_path, "wb") as f:
                     plistlib.dump(plist_content, f)
 
             self.logger.info("Added to system startup")
@@ -192,7 +194,7 @@ class PrimeSync:
 
     def run(self) -> None:
         """Start the application, running the system tray and main loop."""
-        print('Start the application, running the system tray and main loop')
+        print("Start the application, running the system tray and main loop")
         try:
             # Check if settings exist and are valid before starting
             if not self.settings_repo.get_settings():
@@ -200,7 +202,7 @@ class PrimeSync:
                 self.notification_service.notify(
                     "Settings",
                     "No settings found. Please configure in the dashboard.",
-                    "warning"
+                    "warning",
                 )
 
             # Start tray icon - change to non-daemon for more reliable execution
@@ -246,15 +248,11 @@ if __name__ == "__main__":
     logs_dir = Path("logs")
     logs_dir.mkdir(exist_ok=True)
 
-
     # Setup logging
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        handlers=[
-            logging.FileHandler("logs/primesync.log"),
-            logging.StreamHandler()
-        ]
+        handlers=[logging.FileHandler("logs/primesync.log"), logging.StreamHandler()],
     )
 
     # Set exception handler

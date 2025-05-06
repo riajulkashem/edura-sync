@@ -1,12 +1,11 @@
-# services/device_manager.py
 import logging
 from datetime import datetime
-from typing import List, Optional
+from typing import List
 
 from zk import ZK
 
 from core.exceptions import DeviceConnectionError
-from interfaces.database.models import Device, User
+from interfaces.database.models import Device
 from interfaces.database.repository import (
     DeviceRepository,
     UserRepository,
@@ -22,33 +21,30 @@ class DeviceConnectionFactory:
     """
 
     @staticmethod
-    def create_connection(device: Device) -> Optional[ZK]:
+    def create_connection(device: Device) -> ZK:
         """
-        Create a connection to a ZKTeco device.
-        Args:
-            device: Device model containing connection details.
-        Returns:
-            Optional[ZK]: Connected ZK instance or None if connection fails.
-        Raises:
-            DeviceConnectionError: If connection fails.
+        Create and return a live connection to a ZKTeco device.
+        Raises DeviceConnectionError on failure.
         """
         logger = logging.getLogger(__name__)
         try:
             zk = ZK(
-                device.ip_address, port=device.port, password=device.password, timeout=5
+                device.ip_address,
+                port=device.port,
+                password=device.password,
+                timeout=5,
             )
             conn = zk.connect()
-            if conn:
-                logger.debug(f"Connected to device {device.ip_address}:{device.port}")
-                return zk
-            else:
+            if not conn:
                 raise DeviceConnectionError(
-                    f"Failed to connect to device {device.ip_address}"
+                    f"Failed to connect to device {device.ip_address}:{device.port}"
                 )
+            logger.debug(f"Connected to device {device.ip_address}:{device.port}")
+            return conn
         except Exception as e:
             logger.error(f"Device connection error for {device.ip_address}: {e}")
             raise DeviceConnectionError(
-                f"Failed to connect to device {device.ip_address}: {str(e)}"
+                f"Failed to connect to device {device.ip_address}:{e}"
             )
 
 
@@ -59,20 +55,12 @@ class DeviceManager:
     """
 
     def __init__(
-        self,
-        notification_service: NotificationService,
-        device_repo: DeviceRepository,
-        user_repo: UserRepository,
-        attendance_repo: AttendanceRepository,
+            self,
+            notification_service: NotificationService,
+            device_repo: DeviceRepository,
+            user_repo: UserRepository,
+            attendance_repo: AttendanceRepository,
     ):
-        """
-        Initialize the device manager with dependencies.
-        Args:
-            notification_service: Service for sending notifications.
-            device_repo: Repository for device data.
-            user_repo: Repository for user data.
-            attendance_repo: Repository for attendance data.
-        """
         self.notification_service = notification_service
         self.device_repo = device_repo
         self.user_repo = user_repo
@@ -82,9 +70,8 @@ class DeviceManager:
 
     def check_devices(self) -> int:
         """
-        Check the status of all registered devices and update their status.
-        Returns:
-            int: Number of online devices.
+        Check the status of all registered devices and update their status in the DB.
+        Returns the number of online devices.
         """
         self.logger.info("Starting device status check")
         online_count = 0
@@ -92,84 +79,68 @@ class DeviceManager:
             devices: List[Device] = self.device_repo.get_all()
             for device in devices:
                 try:
-                    zk = DeviceConnectionFactory.create_connection(device)
-                    device.status = "Online"
+                    conn = DeviceConnectionFactory.create_connection(device)
+                    # mark online and persist
+                    self.device_repo.update(device, status="Online")
                     online_count += 1
-                    zk.disconnect()
+                    conn.disconnect()
+                    self.logger.debug(
+                        f"Checked device {device.ip_address}: Online"
+                    )
                 except DeviceConnectionError:
-                    device.status = "Offline"
-                finally:
-                    self.device_repo.model.update(status=device.status).where(
-                        self.device_repo.model.id == device.id
-                    ).execute()
+                    # mark offline and persist
+                    self.device_repo.update(device, status="Offline")
                     self.logger.info(
-                        f"Checked device {device.ip_address}: {device.status}"
+                        f"Checked device {device.ip_address}: Offline"
                     )
 
             self.logger.info(f"Device status check completed: {online_count} online")
-            self.notification_service.notify(
-                "Device Check",
-                f"Checked {len(devices)} devices. {online_count} online.",
-                "info",
-            )
             return online_count
         except Exception as e:
             self.logger.error(f"Error checking devices: {e}")
             self.notification_service.notify(
-                "Error", f"Failed to check devices: {str(e)}", "error"
+                "Error", f"Failed to check devices: {e}", "error"
             )
             return 0
 
     def pull_data(self) -> None:
-        """Pull user and attendance data from all registered devices."""
+        """Pull attendance data from all registered devices."""
         self.logger.info("Starting data pull from devices")
         try:
             devices: List[Device] = self.device_repo.get_all()
             for device in devices:
                 try:
-                    zk = DeviceConnectionFactory.create_connection(device)
-                    # Pull users
-                    users = zk.get_users()
-                    user_count = len(users)
-                    for zk_user in users:
-                        self.user_repo.model.get_or_create(
-                            uid=zk_user.uid,
-                            defaults={
-                                "name": zk_user.name,
-                                "role": zk_user.privilege,
-                                "password": zk_user.password,
-                                "group_id": zk_user.group_id,
-                                "user_id": zk_user.user_id,
-                                "card": zk_user.card,
-                                "device": device,
-                                "created_at": datetime.now(),
-                                "updated_at": datetime.now(),
-                            },
-                        )
+                    conn = DeviceConnectionFactory.create_connection(device)
+                    conn.disable_device()
 
-                    # Pull attendance records
-                    attendances = zk.get_attendance()
-                    attendance_count = len(attendances)
+                    attendances = conn.get_attendance()
+                    total = len(attendances)
+
                     for att in attendances:
-                        user = self.user_repo.get(id=att.user_id)
-                        if user:
+                        # skip duplicate records via repository
+                        existing = self.attendance_repo.filter(
+                            user_id=att.user_id,
+                            timestamp=att.timestamp,
+                            status=att.status,
+                        )
+                        if not existing:
                             self.attendance_repo.create(
-                                user=user,
+                                user_id=att.user_id,
                                 timestamp=att.timestamp,
                                 status=att.status,
                                 punch=att.punch,
-                                uid=att.user_id,
                                 created_at=datetime.now(),
+                                device_id=device.cloud_id,
                             )
 
-                    zk.disconnect()
+                    conn.enable_device()
+                    conn.disconnect()
                     self.logger.info(
-                        f"Pulled data from device {device.ip_address}: "
-                        f"{user_count} users, {attendance_count} attendance records"
+                        f"Pulled {total} attendance records from {device.ip_address}"
                     )
                 except DeviceConnectionError as e:
                     self.logger.error(
-                        f"Failed to pull data from device {device.ip_address}: {e}"
+                        f"Failed to pull data from {device.ip_address}: {e}"
                     )
                     continue
 
@@ -180,91 +151,143 @@ class DeviceManager:
         except Exception as e:
             self.logger.error(f"Error pulling data: {e}")
             self.notification_service.notify(
-                "Error", f"Failed to pull data: {str(e)}", "error"
+                "Error", f"Failed to pull data: {e}", "error"
             )
 
     def migrate_user_to_device(self) -> None:
-        """Migrate users from database to connected devices."""
+        """Migrate users from the database to connected devices."""
         self.logger.info("Starting user migration to devices")
         devices = self.device_repo.get_all()
-        users = self.user_repo.filter(saved_to_device=False)
-        print(users)
-        if not devices:
-            self.notification_service.notify(
-                "Sync Users",
-                "No devices found to sync users to",
-                "warning"
-            )
-            return
 
-        if not users:
-            self.notification_service.notify(
-                "Sync Users",
-                "No users found to sync to devices",
-                "warning"
-            )
-            self.logger.info(f"No new users to migrate")
-            return
-
-        total_users_migrated = 0
-        total_devices_updated = 0
+        total_users = 0
+        devices_updated = 0
 
         for device in devices:
             try:
-                zk = DeviceConnectionFactory.create_connection(device)
-                conn = zk.connect()
-                device_users = conn.get_users()
-                device_user_ids = [d.user_id for d in device_users]
+                conn = DeviceConnectionFactory.create_connection(device)
+                conn.disable_device()
 
-                if conn:
-                    users_migrated = 0
-                    conn.disable_device()
+                users = self.user_repo.filter(saved_to_device=False, device=device)
+                migrated = 0
+                for user in users:
+                    conn.set_user(
+                        uid=int(user.user_id),
+                        name=user.name,
+                        privilege=user.role,
+                        password=user.password,
+                        group_id=user.group_id,
+                        user_id=user.user_id,
+                    )
+                    self.user_repo.update(user, saved_to_device=True)
+                    migrated += 1
+                    self.logger.info(
+                        f"Migrated user {user.user_id} to {device.ip_address}"
+                    )
 
-                    # TODO: implement this when server side multi device support is added
-                    # db_users = User.filter(saved_to_device=False, device_cloud_id=device.id)
+                conn.enable_device()
+                conn.disconnect()
 
-                    for db_user in users:
-                        if db_user.user_id not in device_user_ids:
-                            conn.set_user(
-                                uid=int(db_user.user_id),
-                                name=db_user.name,
-                                privilege=db_user.role,
-                                password="",
-                                group_id=0,
-                                user_id=db_user.user_id,
-                            )
-                            db_user.saved_to_device = True
-                            db_user.save()
-                            users_migrated += 1
-                            self.logger.info(f"Migrated user {db_user.user_id} to device {device.ip_address}")
-
-                    conn.enable_device()
-
-                    if users_migrated > 0:
-                        total_users_migrated += users_migrated
-                        total_devices_updated += 1
-                        self.logger.info(f"Successfully migrated {users_migrated} users to device {device.ip_address}")
-                    else:
-                        self.logger.info(f"No new users to migrate to device {device.ip_address}")
-
-                    conn.disconnect()
+                if migrated:
+                    total_users += migrated
+                    devices_updated += 1
+                    self.logger.info(
+                        f"Successfully migrated {migrated} users to {device.ip_address}"
+                    )
+                else:
+                    self.logger.info(
+                        f"No new users for {device.ip_address}"
+                    )
 
             except Exception as e:
-                self.logger.error(f"Failed to sync users to device {device.ip_address}: {e}")
+                self.logger.error(
+                    f"Failed to sync users to {device.ip_address}: {e}"
+                )
 
-        # Provide user feedback through notification
-        if total_users_migrated > 0:
+        # Notify results
+        if total_users:
             self.notification_service.notify(
                 "Users Synced",
-                f"Successfully migrated {total_users_migrated} users to {total_devices_updated} devices",
-                "info"
+                f"Migrated {total_users} users across {devices_updated} devices",
+                "info",
             )
         else:
             self.notification_service.notify(
                 "Sync Complete",
-                "No new users needed to be synced to devices",
-                "info"
+                "No new users needed syncing",
+                "info",
             )
 
         self.logger.info(
-            f"User migration completed: {total_users_migrated} users migrated to {total_devices_updated} devices")
+            f"User migration completed: {total_users} users -> {devices_updated} devices"
+        )
+
+    def clear_device_logs(self, device: Device) -> bool:
+        zk = ZK(device.ip_address, port=device.port, password=device.password, timeout=5)
+        conn = None
+        try:
+            conn = zk.connect()
+            conn.disable_device()  # prevent user activity during the operation
+            success = conn.clear_attendance()  # returns True if cleared successfully
+            conn.enable_device()
+            return success
+        except Exception as e:
+            raise DeviceConnectionError(f"Failed to clear logs: {e}")
+        finally:
+            if conn:
+                conn.disconnect()
+
+    def clear_all_device_logs(self) -> int:
+        """
+        Clear attendance logs on all registered devices.
+        Returns the number of devices successfully cleared.
+        """
+        devices = self.device_repo.get_all()
+        total_cleared = 0
+        for device in devices:
+            try:
+                success = self.clear_device_logs(device)
+                if success:
+                    total_cleared += 1
+                    self.logger.info(f"Cleared logs for {device.ip_address}")
+                else:
+                    self.logger.warning(f"Failed to clear logs for {device.ip_address}")
+            except DeviceConnectionError as e:
+                self.logger.error(f"Failed to clear logs for {device.ip_address}: {e}")
+        self.notification_service.notify(
+            "Clear Logs",
+            f"Cleared attendance logs on {total_cleared}/{len(devices)} devices",
+            "info"
+        )
+        return total_cleared
+
+    def clear_all_user_logs(self) -> int:
+        """
+        Clear all user data (users & templates) on all registered devices.
+        Returns the number of devices successfully cleared.
+        """
+        devices = self.device_repo.get_all()
+        total_cleared = 0
+        for device in devices:
+            conn = None
+            try:
+                conn = DeviceConnectionFactory.create_connection(device)
+                conn.disable_device()
+                # clear_data will remove users, templates, and attendance logs
+                success = conn.clear_data()
+                conn.enable_device()
+                if success:
+                    total_cleared += 1
+                    self.logger.info(f"Cleared user data for {device.ip_address}")
+                else:
+                    self.logger.warning(f"Failed to clear user data for {device.ip_address}")
+            except Exception as e:
+                self.logger.error(f"Failed to clear user data for {device.ip_address}: {e}")
+            finally:
+                if conn:
+                    conn.disconnect()
+        self.notification_service.notify(
+            "Clear Users",
+            f"Cleared user data on {total_cleared}/{len(devices)} devices",
+            "info"
+        )
+        return total_cleared

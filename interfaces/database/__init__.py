@@ -1,4 +1,4 @@
-from .models import Attendance, User, Device, Settings
+from .models import Attendance, User, Device
 from .repository import (
     SettingsRepository,
     AttendanceRepository,

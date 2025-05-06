@@ -7,7 +7,7 @@ Contains callback methods for buttons and other interactive UI elements.
 import logging
 import tkinter as tk
 import requests
-from typing import Callable, Dict, Any, Optional
+from typing import Callable, Dict
 
 from core.constants import STATUS_COLORS, STATUS_MESSAGES, API_ENDPOINTS
 
@@ -17,12 +17,14 @@ logger = logging.getLogger(__name__)
 class SettingsEventHandler:
     """Handles events for the Settings tab in the dashboard."""
 
-    def __init__(self,
-                 app,
-                 security,
-                 settings_repo,
-                 notification_service,
-                 status_callback: Callable[[str, str], None]):
+    def __init__(
+        self,
+        app,
+        security,
+        settings_repo,
+        notification_service,
+        status_callback: Callable[[str, str], None],
+    ):
         """
         Initialize settings event handler.
 
@@ -41,12 +43,14 @@ class SettingsEventHandler:
         self.logger = logging.getLogger(__name__)
         self.auth_token = None
 
-    def check_connection(self,
-                         url: str,
-                         username: str,
-                         password: str,
-                         institute_id: str,
-                         parent_widget: tk.Widget) -> bool:
+    def check_connection(
+        self,
+        url: str,
+        username: str,
+        password: str,
+        institute_id: str,
+        parent_widget: tk.Widget,
+    ) -> bool:
         """
         Check connection to the API server using provided credentials.
 
@@ -61,34 +65,35 @@ class SettingsEventHandler:
             bool: True if connection successful, False otherwise
         """
         if not all([url, username, password, institute_id]):
-            self.status_callback(STATUS_MESSAGES["FILL_ALL_FIELDS"], STATUS_COLORS["ERROR"])
+            self.status_callback(
+                STATUS_MESSAGES["FILL_ALL_FIELDS"], STATUS_COLORS["ERROR"]
+            )
             return False
 
         # Show checking status
-        self.status_callback(STATUS_MESSAGES["CONNECTION_CHECKING"], STATUS_COLORS["INFO"])
+        self.status_callback(
+            STATUS_MESSAGES["CONNECTION_CHECKING"], STATUS_COLORS["INFO"]
+        )
         parent_widget.update()
 
         try:
             # Determine the token URL
-            login_url = f'{url}{API_ENDPOINTS["TOKEN"]}'
+            login_url = f"{url}{API_ENDPOINTS['TOKEN']}"
 
             # Try token-based authentication
-            token_payload = {
-                "username": username,
-                "password": password
-            }
+            token_payload = {"username": username, "password": password}
 
             token_response = requests.post(
                 login_url,
                 json=token_payload,
                 headers={"Content-Type": "application/json"},
-                timeout=10
+                timeout=10,
             )
 
             if token_response.status_code == 200:
                 # Token auth successful
                 token_data = token_response.json()
-                token = token_data.get('token') or token_data.get('access')
+                token = token_data.get("token") or token_data.get("access")
 
                 if token:
                     # Save token for later use
@@ -98,37 +103,40 @@ class SettingsEventHandler:
                     headers = {"Authorization": f"Token {token}"}
 
                     # Use institute_id as a parameter
-                    info_url = f'{url}{API_ENDPOINTS["INFO"]}?institute={institute_id}'
+                    info_url = f"{url}{API_ENDPOINTS['INFO']}?institute={institute_id}"
 
-                    info_response = requests.get(
-                        info_url,
-                        headers=headers,
-                        timeout=5
-                    )
+                    info_response = requests.get(info_url, headers=headers, timeout=5)
 
                     if info_response.status_code == 200:
                         # Successfully connected with token
                         info_data = info_response.json()
                         self.status_callback(
                             f"Connected to {info_data.get('name', 'Django API')} v{info_data.get('version', '1.0')}",
-                            STATUS_COLORS["SUCCESS"]
+                            STATUS_COLORS["SUCCESS"],
                         )
                         self.logger.info(f"Connected to Django API: {info_data}")
                         return True
                 else:
-                    self.status_callback("Authentication failed: No token received", STATUS_COLORS["ERROR"])
+                    self.status_callback(
+                        "Authentication failed: No token received",
+                        STATUS_COLORS["ERROR"],
+                    )
                     return False
             else:
                 # Authentication failed
                 self.status_callback(
                     f"Authentication failed: {token_response.status_code}",
-                    STATUS_COLORS["ERROR"]
+                    STATUS_COLORS["ERROR"],
                 )
-                self.logger.warning(f"Authentication failed: {token_response.status_code}")
+                self.logger.warning(
+                    f"Authentication failed: {token_response.status_code}"
+                )
                 return False
 
         except requests.exceptions.ConnectionError:
-            self.status_callback("Connection error: Could not connect to server", STATUS_COLORS["ERROR"])
+            self.status_callback(
+                "Connection error: Could not connect to server", STATUS_COLORS["ERROR"]
+            )
             self.logger.error("Connection error: Failed to connect to server")
         except requests.exceptions.Timeout:
             self.status_callback("Connection timed out", STATUS_COLORS["ERROR"])
@@ -139,11 +147,9 @@ class SettingsEventHandler:
 
         return False
 
-    def save_settings(self,
-                      url: str,
-                      username: str,
-                      password: str,
-                      institute_id: str) -> bool:
+    def save_settings(
+        self, url: str, username: str, password: str, institute_id: str
+    ) -> bool:
         """
         Save settings to the database and update related services.
 
@@ -159,15 +165,15 @@ class SettingsEventHandler:
         try:
             # Prepare data for saving
             data = {
-                'cloud_api_url': url.strip(),
-                'username': username.strip(),
-                'password': self.security.encrypt(password.strip()),
-                'institute_id': institute_id.strip(),
+                "cloud_api_url": url.strip(),
+                "username": username.strip(),
+                "password": self.security.encrypt(password.strip()),
+                "institute_id": institute_id.strip(),
             }
 
             # Add auth_token to data if it exists
             if self.auth_token:
-                data['auth_token'] = self.auth_token
+                data["auth_token"] = self.auth_token
 
             # Save settings to the database
             self.settings_repo.save_settings(**data)
@@ -176,7 +182,9 @@ class SettingsEventHandler:
             self.app.api_client.update_settings()
 
             # Use status label for confirmation
-            self.status_callback(STATUS_MESSAGES["SETTINGS_SAVED"], STATUS_COLORS["SUCCESS"])
+            self.status_callback(
+                STATUS_MESSAGES["SETTINGS_SAVED"], STATUS_COLORS["SUCCESS"]
+            )
             self.logger.info("Settings saved successfully")
 
             # Notify user
@@ -201,8 +209,7 @@ class SettingsEventHandler:
                 entry.delete(0, tk.END)
 
             self.status_callback(
-                STATUS_MESSAGES["SETTINGS_RESET"],
-                STATUS_COLORS["INFO"]
+                STATUS_MESSAGES["SETTINGS_RESET"], STATUS_COLORS["INFO"]
             )
             self.logger.info("Settings form reset")
         except Exception as e:

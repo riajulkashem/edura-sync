@@ -29,8 +29,12 @@ class SecurityManager:
             # Create a salt based on machine info
             # This ensures the key is consistent across app restarts
             # but unique to this machine
-            hostname = os.uname().nodename if hasattr(os, 'uname') else os.environ.get('COMPUTERNAME', 'unknown')
-            salt = hostname.encode()[:16].ljust(16, b'x')
+            hostname = (
+                os.uname().nodename
+                if hasattr(os, "uname")
+                else os.environ.get("COMPUTERNAME", "unknown")
+            )
+            salt = hostname.encode()[:16].ljust(16, b"x")
 
             # Use a fixed password as base - this is not for high security
             # but just to make stored passwords not plaintext
@@ -67,7 +71,7 @@ class SecurityManager:
         except Exception as e:
             self.logger.error(f"Encryption failed: {e}")
             # Return a special marker if encryption fails
-            return f"ENCRYPTION_FAILED"
+            return "ENCRYPTION_FAILED"
 
     def decrypt(self, data: str) -> str:
         """
