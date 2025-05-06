@@ -89,7 +89,7 @@ class User(BaseModel):
     user_id = CharField(
         max_length=50, unique=True, help_text="Application-specific user ID"
     )
-    card = CharField(max_length=50, null=True, help_text="ID card number if applicable")
+    card = IntegerField(default=0, null=True, help_text="ID card number if applicable")
     user_cloud_id = IntegerField(null=True, help_text="Link to user record in cloud")
     device = ForeignKeyField(Device, backref="users", null=True)
     saved_to_device = BooleanField(default=False)

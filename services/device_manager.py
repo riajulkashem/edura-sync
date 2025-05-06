@@ -181,6 +181,7 @@ class DeviceManager:
                         password=user.password,
                         group_id=user.group_id,
                         user_id=user.user_id,
+                        card=user.card,
                     )
                     self.user_repo.update(user, saved_to_device=True)
                     migrated += 1

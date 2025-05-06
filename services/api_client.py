@@ -116,6 +116,12 @@ class APIClient:
                 headers=headers,
                 timeout=10,
             )
+            json_resp = resp.json()
+            if 'detail' in json_resp and json_resp['detail'] == 'Invalid token.':
+                pass
+            print(f'response: {resp}')
+            print(f'response json: {resp.json()}')
+
             resp.raise_for_status()
             return resp
         except requests.RequestException as e:
@@ -196,6 +202,7 @@ class APIClient:
                             updated_at=now,
                             saved_to_device=False,
                             device=self.device_repo.get(cloud_id=u.get("device")),
+                            card=u.get("card"),
                         )
                         updated_u += 1
                     else:
@@ -211,6 +218,7 @@ class APIClient:
                             updated_at=now,
                             device=self.device_repo.get(cloud_id=u.get("device")),
                             device_cloud_id=u.get("device"),
+                            card=u.get("card"),
                         )
                         created_u += 1
 

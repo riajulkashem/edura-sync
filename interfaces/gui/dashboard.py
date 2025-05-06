@@ -795,11 +795,12 @@ class DashboardGUI:
 
             if token_response.status_code == 200:
                 token_data = token_response.json()
-                token = token_data.get("token") or token_data.get("access")
+                token = token_data.get("token")
 
                 if token:
                     # Store token in API client
                     self.api_client.auth_token = token
+                    self.security.save_token_to_settings(token, self.settings_repo)
 
                     # Try API access with token
                     self._update_status_label(
