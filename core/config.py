@@ -4,6 +4,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Optional
+from core.constants import APP_VERSION
 
 
 class Singleton:
@@ -78,13 +79,16 @@ class Config(Singleton):
         self.DATA_DIR = self.INSTALL_DIR / "data"
         if not os.access(str(self.DATA_DIR), os.W_OK):
             self.DATA_DIR = (
-                Path(os.getenv("APPDATA", Path.home() / "AppData" / "Roaming")) / "PrimeSync"
+                Path(os.getenv("APPDATA", Path.home() / "AppData" / "Roaming"))
+                / "PrimeSync"
             )
 
     def _set_icon_path(self) -> None:
         """Set ICON_PATH, preferring INSTALL_DIR with fallback to BASE_DIR."""
         self.ICON_PATH: Optional[Path] = self.INSTALL_DIR / "assets" / "icon.png"
-        self.BACKUP_ICON_PATH: Optional[Path] = self.INSTALL_DIR / "assets" / "backup-icon.png"
+        self.BACKUP_ICON_PATH: Optional[Path] = (
+            self.INSTALL_DIR / "assets" / "backup-icon.png"
+        )
         if not self.ICON_PATH.exists() or not os.access(str(self.ICON_PATH), os.R_OK):
             self.logger.warning(
                 f"Icon not found in INSTALL_DIR at {self.ICON_PATH}, trying BASE_DIR"
@@ -108,3 +112,8 @@ class Config(Singleton):
         if self.ICON_PATH:
             self.ICON_PATH.parent.mkdir(parents=True, exist_ok=True)
         self.logger.info("Ensured required directories exist")
+
+    @property
+    def VERSION(self):
+        """Return the application version from constants."""
+        return APP_VERSION

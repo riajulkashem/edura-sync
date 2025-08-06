@@ -15,35 +15,34 @@ DEVELOPER = {
     "DESIGNATION": "Software Engineer",
     "FACEBOOK": "facebook.com/riajul.kashem",
     "GITHUB": "riajulkashem",
-    "LINKEDIN": "riajulkashem"
+    "LINKEDIN": "riajulkashem",
 }
 
 # Database configuration
 DEFAULT_DB_NAME = "primesync.db"
 DB_PRAGMAS = {
-    'journal_mode': 'wal',  # Write-Ahead Logging for better concurrency
-    'foreign_keys': 1,      # Enable foreign key support
-    'cache_size': -1024*64  # 64MB cache size
+    "journal_mode": "wal",  # Write-Ahead Logging for better concurrency
+    "foreign_keys": 1,  # Enable foreign key support
+    "cache_size": -1024 * 64,  # 64MB cache size
 }
 
-# API endpoints
+# API Endpoints for DRF backend
 API_ENDPOINTS = {
-    "TOKEN": "/api/token/",
-    "INFO": "/api/info/",
-    "SYNC": "/api/sync/",
-    "ATTENDANCE": "/api/attendance/"
+    "TOKEN": "/api/token/",  # JWT token endpoint
+    "REFRESH": "/api/token/refresh/",  # JWT refresh endpoint
+    "INFO": "/api/institute/{institute_id}/info/",  # Institute info endpoint
+    "ATTENDANCE": "/api/attendance/",  # Attendance data endpoint
+    "USERS": "/api/attendance/device-users/",  # Users endpoint
+    "DEVICES": "/api/devices/",  # Devices endpoint
 }
 
-# UI configuration
+# UI Configuration
 UI_CONFIG = {
-    "DASHBOARD_SIZE": "600x650",
-    "SETTINGS_SIZE": "500x550",
+    "DASHBOARD_SIZE": "800x600",
+    "DEFAULT_FONT": ("TkDefaultFont", 10),
+    "HEADER_FONT": ("TkDefaultFont", 12, "bold"),
+    "SMALL_FONT": ("TkDefaultFont", 8),
     "DEFAULT_PADDING": 10,
-    "DEFAULT_FONT": ("Helvetica", 12),
-    "HEADER_FONT": ("Helvetica", 14, "bold"),
-    "SMALL_FONT": ("Helvetica", 10),
-    "DEFAULT_ICON_SIZE": (64, 64),
-    "DEFAULT_ICON_COLOR": "blue"
 }
 
 # Status messages
@@ -52,17 +51,16 @@ STATUS_MESSAGES = {
     "CONNECTION_SUCCESS": "Connection successful!",
     "CONNECTION_CHECKING": "Checking connection...",
     "SETTINGS_SAVED": "Settings saved successfully",
-    "SETTINGS_RESET": "Settings reset. Enter new values and save.",
-    "FILL_ALL_FIELDS": "Please fill all fields"
+    "SETTINGS_RESET": "Settings form reset",
+    "FILL_ALL_FIELDS": "Please fill in all required fields",
 }
 
 # Status colors
 STATUS_COLORS = {
-    "INFO": "blue",
     "SUCCESS": "green",
-    "WARNING": "orange",
     "ERROR": "red",
-    "NEUTRAL": "gray"
+    "WARNING": "orange",
+    "INFO": "blue",
 }
 
 # Table names
@@ -71,15 +69,13 @@ TABLE_NAMES = {
     "USERS": "users",
     "ATTENDANCE": "attendance_logs",
     "SETTINGS": "settings",
-    "SCHEDULES": "schedules"
 }
 
-# Device settings
+# Device defaults
 DEVICE_DEFAULTS = {
     "PORT": 4370,
-    "PASSWORD": "0",
-    "MODEL": "ZKTeco",
-    "STATUS": "Offline"
+    "PASSWORD": "",
+    "STATUS": "Offline",
 }
 
 # Menu items
@@ -91,23 +87,27 @@ MENU_ITEMS = {
     "DASHBOARD": "Dashboard",
     "SETTINGS": "Settings",
     "EXIT": "Exit",
-    "QUIT": "Quit"
+    "QUIT": "Quit",
 }
 
 # Log messages
 LOG_MESSAGES = {
-    "DB_INITIALIZED": "Database initialized",
+    "DB_INITIALIZED": "Database initialized successfully",
     "SETTINGS_LOADED": "Settings loaded successfully",
     "DASHBOARD_DISPLAYED": "Dashboard displayed successfully",
     "SETTINGS_SAVED": "Settings saved successfully",
-    "TRAY_STARTED": "System tray thread started",
-    "APP_SHUTDOWN": "Application shutdown completed"
+    "TRAY_STARTED": "System tray started",
+    "APP_SHUTDOWN": "Application shutdown complete",
 }
 
-# Settings fields
+# Default settings
 DEFAULT_SETTING = {
-    "CLOUD_API_URL": "http://localhost:8000",
-    "USERNAME": "Username",
-    "PASSWORD": "Password",
-    "INSTITUTE_ID": "Institute ID"
+    "cloud_api_url": "",
+    "username": "",
+    "password": "",
+    "institute_id": "",
+    "in_time_process": None,
+    "out_time_process": None,
+    "created_at": None,
+    "updated_at": None,
 }

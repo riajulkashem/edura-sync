@@ -7,14 +7,8 @@ from pathlib import Path
 from core.config import Config
 from core.constants import LOG_MESSAGES, DEFAULT_SETTING
 from core.security import SecurityManager
-from interfaces.database.models import (
-    DatabaseFactory,
-    db,
-    Device,
-    Attendance,
-    User,
-    Settings,
-)
+from core.exceptions import DatabaseError, ConfigurationError, ValidationError
+from interfaces.database.models import DatabaseFactory, db, initialize_database
 from interfaces.database.repository import (
     DeviceRepository,
     UserRepository,
@@ -46,72 +40,98 @@ class PrimeSync:
         self.config: Config = Config()
         self.logger = logging.getLogger(__name__)
 
-        # Initialize database
-        db_instance = DatabaseFactory.get_database(str(self.config.DB_PATH))
-        db_instance.connect()
-        db_instance.create_tables(
-            [Device, User, Attendance, Settings], safe=True
-        )
-        db_instance.close()
-        self.logger.info(LOG_MESSAGES["DB_INITIALIZED"])
+        try:
+            # Initialize database with proper error handling
+            self._initialize_database()
 
-        # Initialize repositories
-        self.device_repo = DeviceRepository()
-        self.user_repo = UserRepository()
-        self.attendance_repo = AttendanceRepository()
-        self.settings_repo = SettingsRepository()
+            # Initialize repositories
+            self.device_repo = DeviceRepository()
+            self.user_repo = UserRepository()
+            self.attendance_repo = AttendanceRepository()
+            self.settings_repo = SettingsRepository()
 
-        # Initialize services
-        self.security = SecurityManager()
-        self.notification_service = NotificationService(self.config)
-        self.device_manager = DeviceManager(
-            self.notification_service,
-            self.device_repo,
-            self.user_repo,
-            self.attendance_repo,
-        )
-        self.api_client = APIClient(
-            self.security,
-            self.notification_service,
-            self.settings_repo,
-            self.attendance_repo,
-            self.device_manager
-        )
+            # Initialize services
+            self.security = SecurityManager()
+            self.notification_service = NotificationService(self.config)
+            self.device_manager = DeviceManager(
+                self.notification_service,
+                self.device_repo,
+                self.user_repo,
+                self.attendance_repo,
+            )
+            self.api_client = APIClient(
+                self.security,
+                self.notification_service,
+                self.settings_repo,
+                self.attendance_repo,
+                self.user_repo,
+                self.device_repo,
+                self.device_manager,
+            )
 
-        # Initialize GUI components
-        self.root = tk.Tk()
-        self.root.withdraw()
-        self.dashboard_gui = DashboardGUI(
-            self.root,
-            self,
-            self.device_repo,
-            self.user_repo,
-            self.notification_service,
-            self.settings_repo,
-            self.api_client,
-            self.security
-        )
+            # Initialize GUI components
+            self.root = tk.Tk()
+            self.root.withdraw()
+            self.dashboard_gui = DashboardGUI(
+                self.root,
+                self,
+                self.device_repo,
+                self.user_repo,
+                self.notification_service,
+                self.settings_repo,
+                self.api_client,
+                self.security,
+            )
 
-        # In the PrimeSync.__init__ method, after initializing dashboard_gui
-        # Update the dashboard with all required dependencies
-        self.dashboard_gui.settings_repo = self.settings_repo
-        self.dashboard_gui.api_client = self.api_client
-        self.dashboard_gui.security = self.security
-        self.dashboard_gui.set_device_manager(self.device_manager)
+            # Update the dashboard with all required dependencies
+            self.dashboard_gui.settings_repo = self.settings_repo
+            self.dashboard_gui.api_client = self.api_client
+            self.dashboard_gui.security = self.security
+            self.dashboard_gui.set_device_manager(self.device_manager)
 
-        # Initialize system tray
-        self.tray = SystemTray(
-            self,
-            self.config,
-            self.device_manager,
-            self.api_client,
-            self.dashboard_gui,
-            self.notification_service,
-        )
+            # Initialize system tray
+            self.tray = SystemTray(
+                self,
+                self.config,
+                self.device_manager,
+                self.api_client,
+                self.dashboard_gui,
+                self.notification_service,
+            )
 
-        # Load settings
-        self._load_settings()
-        self._add_to_startup()
+            # Load settings
+            self._load_settings()
+            self._add_to_startup()
+
+        except DatabaseError as e:
+            self.logger.error(f"Database initialization failed: {e.message}")
+            self.notification_service.notify(
+                "Error", f"Database error: {e.message}", "error"
+            )
+            raise
+        except ConfigurationError as e:
+            self.logger.error(f"Configuration error: {e.message}")
+            self.notification_service.notify(
+                "Error", f"Configuration error: {e.message}", "error"
+            )
+            raise
+        except Exception as e:
+            self.logger.error(f"Application initialization failed: {e}")
+            raise
+
+    def _initialize_database(self) -> None:
+        """Initialize database with proper error handling."""
+        try:
+            db_instance = DatabaseFactory.get_database(str(self.config.DB_PATH))
+            db_instance.connect()
+
+            # Use the new initialization function
+            initialize_database()
+
+            self.logger.info(LOG_MESSAGES["DB_INITIALIZED"])
+        except Exception as e:
+            self.logger.error(f"Database initialization failed: {e}")
+            raise DatabaseError(f"Failed to initialize database: {str(e)}")
 
     def _load_settings(self) -> None:
         """Load settings and initialize services."""
@@ -120,13 +140,23 @@ class PrimeSync:
 
             if settings is None:
                 # Create default settings if none exist
-                self.settings_repo.save_settings(**DEFAULT_SETTING)
-                self.logger.info("Created default settings - please update them in the dashboard")
-                self.notification_service.notify(
-                    "Settings",
-                    "Default settings created. Please update them in the dashboard.",
-                    "info"
-                )
+                try:
+                    self.settings_repo.save_settings(**DEFAULT_SETTING)
+                    self.logger.info(
+                        "Created default settings - please update them in the dashboard"
+                    )
+                    self.notification_service.notify(
+                        "Settings",
+                        "Default settings created. Please update them in the dashboard.",
+                        "info",
+                    )
+                except ValidationError as e:
+                    self.logger.error(f"Failed to create default settings: {e.message}")
+                    self.notification_service.notify(
+                        "Error",
+                        f"Failed to create default settings: {e.message}",
+                        "error",
+                    )
 
             # Update API client with settings
             self.api_client.update_settings()
@@ -135,6 +165,23 @@ class PrimeSync:
             self.dashboard_gui.show_dashboard()
             self.logger.info(LOG_MESSAGES["SETTINGS_LOADED"])
 
+        except DatabaseError as e:
+            self.logger.error(f"Database error loading settings: {e.message}")
+            # Still show dashboard with error notification
+            self.dashboard_gui.show_dashboard()
+            self.notification_service.notify(
+                "Error",
+                f"Database error loading settings: {e.message}. Please check database connection.",
+                "error",
+            )
+        except ValidationError as e:
+            self.logger.error(f"Validation error loading settings: {e.message}")
+            self.dashboard_gui.show_dashboard()
+            self.notification_service.notify(
+                "Error",
+                f"Settings validation error: {e.message}. Please check settings in dashboard.",
+                "error",
+            )
         except Exception as e:
             self.logger.error(f"Error loading settings: {e}")
             # Still show dashboard with error notification
@@ -142,7 +189,7 @@ class PrimeSync:
             self.notification_service.notify(
                 "Error",
                 f"Failed to load settings: {str(e)}. Please update settings in the dashboard.",
-                "error"
+                "error",
             )
 
     def _add_to_startup(self) -> None:
@@ -152,10 +199,10 @@ class PrimeSync:
             import platform
             import sys
 
-            if platform.system() == 'Windows':
+            if platform.system() == "Windows":
                 # Windows autostart is handled by the installer (registry)
                 pass
-            elif platform.system() == 'Darwin':  # macOS
+            elif platform.system() == "Darwin":  # macOS
                 import plistlib
 
                 # Create a macOS LaunchAgent plist file
@@ -165,9 +212,16 @@ class PrimeSync:
                 if not os.path.exists(launch_agents_dir):
                     os.makedirs(launch_agents_dir)
 
-                plist_path = os.path.join(launch_agents_dir, "com.primesync.trayapp.plist")
+                plist_path = os.path.join(
+                    launch_agents_dir, "com.primesync.trayapp.plist"
+                )
 
-                if getattr(sys, 'frozen', False):
+                # Check if already added to startup
+                if os.path.exists(plist_path):
+                    self.logger.info("Application already added to system startup")
+                    return
+
+                if getattr(sys, "frozen", False):
                     # Running as compiled app
                     executable_path = sys.executable
                 else:
@@ -177,22 +231,24 @@ class PrimeSync:
                     executable_path = f"{executable_path} {script_path}"
 
                 plist_content = {
-                    'Label': 'com.primesync.trayapp',
-                    'ProgramArguments': [executable_path],
-                    'RunAtLoad': True,
-                    'KeepAlive': False,
+                    "Label": "com.primesync.trayapp",
+                    "ProgramArguments": [executable_path],
+                    "RunAtLoad": True,
+                    "KeepAlive": False,
                 }
 
-                with open(plist_path, 'wb') as f:
+                with open(plist_path, "wb") as f:
                     plistlib.dump(plist_content, f)
 
-            self.logger.info("Added to system startup")
+                self.logger.info("Added to system startup")
+            else:
+                self.logger.info("System startup not supported on this platform")
+
         except Exception as e:
             self.logger.error(f"Failed to add to startup: {e}")
 
     def run(self) -> None:
         """Start the application, running the system tray and main loop."""
-        print('Start the application, running the system tray and main loop')
         try:
             # Check if settings exist and are valid before starting
             if not self.settings_repo.get_settings():
@@ -200,7 +256,7 @@ class PrimeSync:
                 self.notification_service.notify(
                     "Settings",
                     "No settings found. Please configure in the dashboard.",
-                    "warning"
+                    "warning",
                 )
 
             # Start tray icon - change to non-daemon for more reliable execution
@@ -246,15 +302,11 @@ if __name__ == "__main__":
     logs_dir = Path("logs")
     logs_dir.mkdir(exist_ok=True)
 
-
     # Setup logging
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        handlers=[
-            logging.FileHandler("logs/primesync.log"),
-            logging.StreamHandler()
-        ]
+        handlers=[logging.FileHandler("logs/primesync.log"), logging.StreamHandler()],
     )
 
     # Set exception handler

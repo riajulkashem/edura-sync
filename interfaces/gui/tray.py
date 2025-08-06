@@ -1,7 +1,9 @@
 import logging
-from typing import Optional, Callable, Any
+from typing import Optional, Callable
 import pystray
 from PIL import Image
+
+from core.exceptions import GUIError, DeviceConnectionError, APICallError
 
 
 class SystemTray:
@@ -11,13 +13,13 @@ class SystemTray:
     """
 
     def __init__(
-            self,
-            app,
-            config,
-            device_manager,
-            api_client,
-            dashboard_gui,
-            notification_service,
+        self,
+        app,
+        config,
+        device_manager,
+        api_client,
+        dashboard_gui,
+        notification_service,
     ):
         """
         Initialize the system tray with dependencies.
@@ -56,8 +58,13 @@ class SystemTray:
                 self.logger.info(f"Running action: {description}")
                 action()
                 self.logger.info(f"Completed action: {description}")
+            except (DeviceConnectionError, APICallError) as e:
+                self.logger.error(f"Operation error in {description}: {e.message}")
+                self.notification_service.notify(
+                    "Error", f"Failed to {description.lower()}: {e.message}", "error"
+                )
             except Exception as e:
-                self.logger.error(f"Error in {description}: {e}")
+                self.logger.error(f"Unexpected error in {description}: {e}")
                 self.notification_service.notify(
                     "Error", f"Failed to {description.lower()}: {str(e)}", "error"
                 )
@@ -85,7 +92,8 @@ class SystemTray:
                     ),
                 ),
                 pystray.MenuItem(
-                    "Sync Data", self._run_action(self.api_client.sync_data, "Sync Data")
+                    "Sync Data",
+                    self._run_action(self.api_client.sync_data, "Sync Data"),
                 ),
                 pystray.MenuItem(
                     "Post Cloud",
@@ -100,11 +108,13 @@ class SystemTray:
                     ),
                 ),
                 pystray.MenuItem(
-                    "Sync Device",
+                    "Sync Users",
                     self._run_action(
-                        self.device_manager.migrate_user_to_device, "Push User Data To Machine"
+                        self.device_manager.migrate_user_to_device,
+                        "Sync Users to Devices",
                     ),
                 ),
+                pystray.Menu.SEPARATOR,
                 pystray.MenuItem(
                     "Dashboard",
                     self._run_action(
@@ -112,37 +122,47 @@ class SystemTray:
                     ),
                 ),
                 pystray.MenuItem(
+                    "Settings",
+                    self._run_action(
+                        self.dashboard_gui.show_dashboard, "Show Settings"
+                    ),
+                ),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem(
                     "Exit", self._run_action(self.app.exit_app, "Exit Application")
                 ),
             )
 
-            self.icon = pystray.Icon("PrimeSync", image, "PrimeSync Manager", menu)
-            self.logger.info("System tray initialized")
+            self.icon = pystray.Icon("primesync", image, "PrimeSync", menu)
+
         except Exception as e:
             self.logger.error(f"Failed to setup system tray: {e}")
-            # Just log errors, don't use notification during setup
+            self.notification_service.notify(
+                "Error", f"Failed to setup system tray: {str(e)}", "error"
+            )
+            raise GUIError(f"Failed to setup system tray: {str(e)}")
 
     def run(self) -> None:
-        """Start the system tray icon."""
-        if self.icon:
-            try:
+        """Run the system tray icon."""
+        try:
+            if self.icon:
                 self.icon.run()
-                self.logger.info("System tray running")
-            except Exception as e:
-                self.logger.error(f"Failed to run system tray: {e}")
-                self.notification_service.notify(
-                    "Error", f"Failed to run system tray: {str(e)}", "error"
-                )
+        except Exception as e:
+            self.logger.error(f"Failed to run system tray: {e}")
+            self.notification_service.notify(
+                "Error", f"Failed to run system tray: {str(e)}", "error"
+            )
+            raise GUIError(f"Failed to run system tray: {str(e)}")
 
     def stop(self) -> None:
         """Stop the system tray icon."""
-        if self.icon:
-            try:
+        try:
+            if self.icon:
                 self.icon.stop()
-                self.icon = None
                 self.logger.info("System tray stopped")
-            except Exception as e:
-                self.logger.error(f"Failed to stop system tray: {e}")
-                self.notification_service.notify(
-                    "Error", f"Failed to stop system tray: {str(e)}", "error"
-                )
+        except Exception as e:
+            self.logger.error(f"Failed to stop system tray: {e}")
+            self.notification_service.notify(
+                "Error", f"Failed to stop system tray: {str(e)}", "error"
+            )
+            raise GUIError(f"Failed to stop system tray: {str(e)}")

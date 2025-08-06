@@ -5,9 +5,10 @@ from typing import Optional
 import tempfile
 import shutil
 
-try:
-    from notifypy import Notify
+from core.exceptions import NotificationError
 
+try:
+    from notify_py import Notify
     NOTIFY_AVAILABLE = True
 except ImportError:
     NOTIFY_AVAILABLE = False
@@ -20,6 +21,7 @@ class NotificationService:
         """Initialize notification service with application configuration."""
         self.config = config
         self.logger = logging.getLogger(__name__)
+        self.icon_path = None
         self._setup_notification_system()
 
     def _setup_notification_system(self) -> None:
@@ -28,11 +30,14 @@ class NotificationService:
             if NOTIFY_AVAILABLE:
                 # Create a custom icon in temp directory if it exists
                 self.icon_path = self._prepare_notification_icon()
-                self.logger.info("Notification system initialized successfully with notify-py")
+                self.logger.info("Notification system initialized with notify-py")
             else:
-                self.logger.warning("notify-py not available, using fallback notifications")
+                self.logger.warning(
+                    "notify-py not available, using fallback notifications"
+                )
         except Exception as e:
             self.logger.error(f"Failed to initialize notification system: {e}")
+            # Don't raise error, continue with fallback
 
     def _prepare_notification_icon(self) -> Optional[str]:
         """
@@ -65,43 +70,65 @@ class NotificationService:
             notification_type: Type of notification (info, error, warning)
         """
         try:
-            self.logger.info(f"[{self._get_timestamp()}] PrimeSync - {title}: {message}")
-            self.logger.info(f"Sending notification: PrimeSync - {title} - {message}")
+            # Log notification for debugging
+            self.logger.debug(f"Notification: {title} - {message}")
 
             if NOTIFY_AVAILABLE:
-                notification = Notify()
-                notification.title = f"PrimeSync - {title}"
-                notification.message = message
+                try:
+                    notification = Notify()
+                    notification.title = f"PrimeSync - {title}"
+                    notification.message = message
 
-                # Set the icon if available
-                if self.icon_path:
-                    notification.icon = self.icon_path
+                    # Set the icon if available
+                    if self.icon_path:
+                        notification.icon = self.icon_path
 
-                # Disable URL open on click (notify-py feature)
-                notification.urgency = 'normal'
+                    # Set urgency based on notification type
+                    urgency_map = {
+                        "error": "critical",
+                        "warning": "normal", 
+                        "info": "low"
+                    }
+                    notification.urgency = urgency_map.get(notification_type, "normal")
 
-                # Override default click action to prevent opening GitHub URL
-                # This is a workaround for notify-py behavior
-                if platform.system() == 'Darwin':  # macOS
-                    notification.application_name = "PrimeSync"
-                elif platform.system() == 'Windows':
-                    pass  # Windows doesn't have this issue
-                else:  # Linux
-                    notification.application_name = "PrimeSync"
+                    # Platform-specific settings
+                    if platform.system() == "Darwin":  # macOS
+                        notification.application_name = "PrimeSync"
+                    elif platform.system() == "Windows":
+                        pass  # Windows doesn't have this issue
+                    else:  # Linux
+                        notification.application_name = "PrimeSync"
 
-                notification.send(block=False)
+                    notification.send(block=False)
+                    self.logger.debug(f"Notification sent successfully: {title}")
+                except Exception as e:
+                    self.logger.error(f"Failed to send notification with notify-py: {e}")
+                    # Fall back to logging
+                    self._log_notification(title, message, notification_type)
             else:
                 # Fallback to logging only if no notification system is available
-                self.logger.warning(f"Unable to show notification - notify-py not available")
+                self._log_notification(title, message, notification_type)
 
-            self.logger.info(f"Notification sent successfully: PrimeSync - {title} - {message}")
         except Exception as e:
             self.logger.error(f"Failed to send notification: {e}")
+            # Don't raise error, just log it
 
-    def _get_timestamp(self) -> str:
-        """Get current timestamp string for logging."""
-        from datetime import datetime
-        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    def _log_notification(self, title: str, message: str, notification_type: str) -> None:
+        """Log notification as fallback when notify-py is not available."""
+        level_map = {
+            "error": "ERROR",
+            "warning": "WARNING", 
+            "info": "INFO"
+        }
+        level = level_map.get(notification_type, "INFO")
+        
+        log_message = f"NOTIFICATION [{level}]: {title} - {message}"
+        if level == "ERROR":
+            self.logger.error(log_message)
+        elif level == "WARNING":
+            self.logger.warning(log_message)
+        else:
+            self.logger.info(log_message)
 
     def _get_notification_icon(self, notification_type: str) -> Optional[str]:
         """

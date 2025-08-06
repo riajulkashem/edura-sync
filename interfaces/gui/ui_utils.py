@@ -3,155 +3,275 @@
 Utility functions for creating consistent UI components.
 """
 
+import logging
 import tkinter as tk
 from tkinter import ttk
-import logging
-from typing import Dict, Any, Callable
+from pathlib import Path
 from PIL import Image, ImageTk
 
 from core.constants import UI_CONFIG
 
+
 logger = logging.getLogger(__name__)
 
 
-def create_window(parent: tk.Tk, title: str, size: str = None) -> tk.Toplevel:
+def create_window(parent, title: str, size: str) -> tk.Toplevel:
     """
-    Create a consistent toplevel window.
+    Create a new window with standard configuration.
 
     Args:
         parent: Parent window
         title: Window title
-        size: Window size, default from UI_CONFIG
+        size: Window size (e.g., "600x400")
 
     Returns:
         tk.Toplevel: Configured window
     """
     window = tk.Toplevel(parent)
     window.title(title)
-    window.geometry(size or UI_CONFIG["DASHBOARD_SIZE"])
-    window.resizable(False, False)
+    window.geometry(size)
+    window.resizable(True, True)
+
+    # Center window on screen
+    window.update_idletasks()
+    x = (window.winfo_screenwidth() // 2) - (window.winfo_width() // 2)
+    y = (window.winfo_screenheight() // 2) - (window.winfo_height() // 2)
+    window.geometry(f"+{x}+{y}")
+
     return window
 
 
-def setup_styles() -> ttk.Style:
-    """
-    Set up consistent styles for the application.
-
-    Returns:
-        ttk.Style: Configured style object
-    """
+def setup_styles():
+    """Configure ttk styles for consistent appearance."""
     style = ttk.Style()
-    style.configure("TLabel", padding=5, font=UI_CONFIG["DEFAULT_FONT"])
+
+    # Configure common styles
     style.configure("Header.TLabel", font=UI_CONFIG["HEADER_FONT"])
-    style.configure("Good.TLabel", foreground="green")
-    style.configure("Warning.TLabel", foreground="orange")
-    style.configure("Error.TLabel", foreground="red")
-    style.configure("Info.TLabel", foreground="blue")
-    style.configure("Credits.TLabel", font=UI_CONFIG["DEFAULT_FONT"], padding=5)
-    style.configure("CreditsLink.TLabel", font=UI_CONFIG["DEFAULT_FONT"], foreground="blue", padding=5)
-    return style
+    style.configure("Info.TLabel", font=UI_CONFIG["DEFAULT_FONT"])
+    style.configure("Small.TLabel", font=UI_CONFIG["SMALL_FONT"])
 
 
-def create_notebook(parent: tk.Widget) -> ttk.Notebook:
+def create_notebook(parent) -> ttk.Notebook:
     """
-    Create a notebook for tabbed interface.
+    Create a notebook widget with standard configuration.
 
     Args:
         parent: Parent widget
 
     Returns:
-        ttk.Notebook: Configured notebook
+        ttk.Notebook: Configured notebook widget
     """
     notebook = ttk.Notebook(parent)
-    notebook.pack(fill="both", expand=True, padx=10, pady=10)
+    notebook.pack(
+        fill="both",
+        expand=True,
+        padx=UI_CONFIG["DEFAULT_PADDING"],
+        pady=UI_CONFIG["DEFAULT_PADDING"],
+    )
     return notebook
 
 
-def create_tab(notebook: ttk.Notebook, title: str) -> ttk.Frame:
+def create_tab(notebook, title: str) -> ttk.Frame:
     """
-    Create a tab in the notebook.
+    Create a new tab in a notebook.
 
     Args:
         notebook: Notebook widget
         title: Tab title
 
     Returns:
-        ttk.Frame: Tab frame
+        ttk.Frame: Frame for tab content
     """
-    frame = ttk.Frame(notebook, padding=10)
+    frame = ttk.Frame(notebook)
     notebook.add(frame, text=title)
     return frame
 
 
-def load_icon(window: tk.Toplevel, icon_path) -> None:
+def load_icon(window, icon_path: Path) -> bool:
     """
-    Load and set the application icon for the window.
+    Load and set icon for a window.
 
     Args:
         window: Window to set icon for
         icon_path: Path to icon file
+
+    Returns:
+        bool: True if icon loaded successfully, False otherwise
     """
     try:
         if icon_path and icon_path.exists():
-            img = Image.open(icon_path)
-            photo = ImageTk.PhotoImage(img)
-            window.iconphoto(True, photo)
-            window._icon = photo  # Keep a reference to prevent garbage collection
-            logger.info(f"Icon set for {window.title()}")
+            # Load and set icon
+            icon = Image.open(icon_path)
+            photo = ImageTk.PhotoImage(icon)
+            window.iconphoto(False, photo)
+            logger.debug(f"Icon set for {window.title()}")
+            return True
+        else:
+            logger.warning(f"Icon file not found: {icon_path}")
+            return False
     except Exception as e:
         logger.error(f"Icon load failed: {e}")
+        return False
 
 
-def create_button(parent, text: str, command: Callable, padding: int = 8) -> ttk.Button:
+def create_button(parent, text: str, command, **kwargs) -> ttk.Button:
     """
-    Create a styled button.
+    Create a button with standard configuration.
 
     Args:
         parent: Parent widget
         text: Button text
-        command: Button callback
-        padding: Button padding
+        command: Command to execute
+        **kwargs: Additional button options
 
     Returns:
         ttk.Button: Configured button
     """
-    return ttk.Button(
-        parent,
-        text=text,
-        command=command,
-        padding=padding
-    )
+    return ttk.Button(parent, text=text, command=command, **kwargs)
 
 
-def create_labeled_entry(parent, label_text: str, row: int,
-                         show: str = None, width: int = 40) -> ttk.Entry:
+def create_entry(parent, **kwargs) -> ttk.Entry:
     """
-    Create a labeled entry field.
+    Create an entry widget with standard configuration.
 
     Args:
         parent: Parent widget
-        label_text: Label text
-        row: Grid row
-        show: Character to show for masked entries
-        width: Entry width
+        **kwargs: Additional entry options
 
     Returns:
-        ttk.Entry: Entry widget
+        ttk.Entry: Configured entry widget
     """
-    ttk.Label(parent, text=label_text).grid(
-        row=row,
-        column=0,
-        sticky='w',
-        pady=5,
-        padx=5
-    )
+    return ttk.Entry(parent, **kwargs)
 
-    entry = ttk.Entry(parent, width=width, show=show)
-    entry.grid(
-        row=row,
-        column=1,
-        sticky='we',
-        pady=5,
-        padx=5
-    )
-    return entry
+
+def create_label(parent, text: str, **kwargs) -> ttk.Label:
+    """
+    Create a label widget with standard configuration.
+
+    Args:
+        parent: Parent widget
+        text: Label text
+        **kwargs: Additional label options
+
+    Returns:
+        ttk.Label: Configured label widget
+    """
+    return ttk.Label(parent, text=text, **kwargs)
+
+
+def create_frame(parent, **kwargs) -> ttk.Frame:
+    """
+    Create a frame widget with standard configuration.
+
+    Args:
+        parent: Parent widget
+        **kwargs: Additional frame options
+
+    Returns:
+        ttk.Frame: Configured frame widget
+    """
+    return ttk.Frame(parent, **kwargs)
+
+
+def create_treeview(parent, columns: list, **kwargs) -> ttk.Treeview:
+    """
+    Create a treeview widget with standard configuration.
+
+    Args:
+        parent: Parent widget
+        columns: List of column names
+        **kwargs: Additional treeview options
+
+    Returns:
+        ttk.Treeview: Configured treeview widget
+    """
+    tree = ttk.Treeview(parent, columns=columns, show="headings", **kwargs)
+
+    # Configure columns
+    for col in columns:
+        tree.heading(col, text=col)
+        tree.column(col, width=100)
+
+    return tree
+
+
+def create_scrollbar(parent, orient: str = "vertical", **kwargs) -> ttk.Scrollbar:
+    """
+    Create a scrollbar widget with standard configuration.
+
+    Args:
+        parent: Parent widget
+        orient: Scrollbar orientation ("vertical" or "horizontal")
+        **kwargs: Additional scrollbar options
+
+    Returns:
+        ttk.Scrollbar: Configured scrollbar widget
+    """
+    return ttk.Scrollbar(parent, orient=orient, **kwargs)
+
+
+def create_text(parent, **kwargs) -> tk.Text:
+    """
+    Create a text widget with standard configuration.
+
+    Args:
+        parent: Parent widget
+        **kwargs: Additional text widget options
+
+    Returns:
+        tk.Text: Configured text widget
+    """
+    return tk.Text(parent, **kwargs)
+
+
+def get_form_values(form_fields):
+    """Get values from all form fields (dict of name: widget)."""
+    return {name: field.get().strip() for name, field in form_fields.items()}
+
+
+def validate_required_fields(form_fields, required_fields, notify=None, update_status=None):
+    """Validate required form fields. Optionally notify and update status on missing fields."""
+    values = get_form_values(form_fields)
+    missing_fields = [field for field in required_fields if not values.get(field)]
+    if missing_fields:
+        field_names = ", ".join(missing_fields)
+        if notify:
+            notify("Error", f"Please fill required fields: {field_names}", "error")
+        if update_status:
+            update_status(f"Please fill required fields: {field_names}", "error")
+        return False
+    return True
+
+
+def show_error_dialog(title, message, notification_service=None):
+    """Show error dialog to user, fallback to notification if provided."""
+    from tkinter import messagebox
+    try:
+        messagebox.showerror(title, message)
+    except Exception as e:
+        logger.error(f"Failed to show error dialog: {e}")
+        if notification_service:
+            notification_service.notify("Error", f"{title}: {message}", "error")
+
+
+def show_info_dialog(title, message, notification_service=None):
+    """Show info dialog to user, fallback to notification if provided."""
+    from tkinter import messagebox
+    try:
+        messagebox.showinfo(title, message)
+    except Exception as e:
+        logger.error(f"Failed to show info dialog: {e}")
+        if notification_service:
+            notification_service.notify("Info", f"{title}: {message}", "info")
+
+
+def show_confirm_dialog(title, message, notification_service=None):
+    """Show confirmation dialog to user, fallback to notification if provided."""
+    from tkinter import messagebox
+    try:
+        return messagebox.askyesno(title, message)
+    except Exception as e:
+        logger.error(f"Failed to show confirm dialog: {e}")
+        if notification_service:
+            notification_service.notify("Info", f"{title}: {message}", "info")
+        return False
