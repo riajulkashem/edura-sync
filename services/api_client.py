@@ -58,6 +58,9 @@ class APIClient:
             device_repo,
             device_manager
         )
+        
+        # Pass security manager to sync manager for password decryption
+        self.sync_manager.security_manager = security
 
         # Load initial settings
         self._load_settings()
@@ -77,20 +80,20 @@ class APIClient:
         except Exception as e:
             self.logger.error(f"Failed to update settings: {e}")
 
-    def test_connection(self, url: str, username: str, password: str, institute_id: str) -> bool:
+    def test_connection(self, url: str, username: str, password: str, sync_id: str) -> bool:
         """
-        Test connection to the cloud API.
+        Test connection to the cloud API using desktop login.
         
         Args:
             url: Base API URL
             username: Username for authentication
             password: Password for authentication
-            institute_id: Institute ID for testing
+            sync_id: Institute sync ID for testing
             
         Returns:
             bool: True if connection successful, False otherwise
         """
-        return self.sync_manager.test_connection(url, username, password, institute_id)
+        return self.sync_manager.test_connection(url, username, password, sync_id)
 
     def post_to_cloud(self) -> None:
         """Post attendance data to the cloud API."""

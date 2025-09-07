@@ -19,75 +19,46 @@ from core.exceptions import (
 
 
 class JWTTokenManager:
-    """Manages JWT access and refresh tokens with automatic refresh logic."""
+    """Manages authentication tokens for desktop login API."""
 
     def __init__(self, security):
         self.security = security
-        self.access_token = None
-        self.refresh_token = None
+        self.auth_token = None  # Simple token from desktop login
+        self.institute_id = None
+        self.institute_name = None
         self.expires_at = None
         self.logger = logging.getLogger(__name__)
 
-    def set_tokens(self, access_token: str, refresh_token: str, expires_in: int = 3600):
-        """Set JWT tokens and calculate expiration time."""
-        self.access_token = access_token
-        self.refresh_token = refresh_token
-        # Calculate expiration time from current time + expires_in seconds
-        self.expires_at = datetime.now() + timedelta(seconds=expires_in)
+    def set_auth_token(self, token: str, institute_id: str = None, institute_name: str = None):
+        """Set authentication token from desktop login."""
+        self.auth_token = token
+        self.institute_id = institute_id
+        self.institute_name = institute_name
+        # For now, assume token doesn't expire (server will handle validation)
+        # In future, could add expiration handling if server provides it
+        self.expires_at = None
 
-    def get_valid_access_token(self) -> Optional[str]:
-        """Get access token if it's still valid (5 minutes buffer)."""
-        if not self.access_token or not self.expires_at:
-            return None
-        
-        # Check if token expires within 5 minutes
-        buffer_time = datetime.now() + timedelta(minutes=5)
-        if self.expires_at <= buffer_time:
-            return None
-        
-        return self.access_token
-
-    def get_refresh_token(self) -> Optional[str]:
-        """Get refresh token."""
-        return self.refresh_token
+    def get_valid_auth_token(self) -> Optional[str]:
+        """Get valid authentication token."""
+        return self.auth_token
 
     def clear_tokens(self):
         """Clear all stored tokens."""
-        self.access_token = None
-        self.refresh_token = None
+        self.auth_token = None
+        self.institute_id = None
+        self.institute_name = None
         self.expires_at = None
 
     def is_token_valid(self) -> bool:
-        """Check if access token is still valid."""
-        return self.get_valid_access_token() is not None
+        """Check if auth token is available."""
+        return self.auth_token is not None
 
-    def _decode_jwt_payload(self, token: str) -> Optional[dict]:
-        """Decode JWT token payload to extract expiration time."""
-        try:
-            # Split JWT token into parts
-            parts = token.split('.')
-            if len(parts) != 3:
-                return None
-            
-            # Decode the payload (second part)
-            payload = parts[1]
-            # Add padding if needed
-            payload += '=' * (4 - len(payload) % 4)
-            decoded = base64.urlsafe_b64decode(payload)
-            return json.loads(decoded)
-        except Exception:
-            return None
-
-    def calculate_expires_in(self, access_token: str) -> int:
-        """Calculate expires_in from JWT token payload."""
-        payload = self._decode_jwt_payload(access_token)
-        if payload and 'exp' in payload:
-            # exp is Unix timestamp
-            exp_timestamp = payload['exp']
-            current_timestamp = datetime.now().timestamp()
-            expires_in = int(exp_timestamp - current_timestamp)
-            return max(expires_in, 0)  # Ensure non-negative
-        return 3600  # Default to 1 hour if can't decode
+    def get_institute_info(self) -> Dict[str, str]:
+        """Get institute information from login."""
+        return {
+            "institute_id": self.institute_id or "",
+            "institute_name": self.institute_name or ""
+        }
 
 
 class APIAuthentication:
@@ -106,60 +77,61 @@ class APIAuthentication:
             return data.get("results")
         return data
 
-    def authenticate_with_jwt(self, url: str, username: str, password: str) -> Dict[str, str]:
+    def authenticate_with_desktop_login(self, url: str, username: str, password: str, sync_id: str) -> Dict[str, str]:
         """
-        Authenticate with JWT tokens using username and password.
+        Authenticate with desktop login endpoint using username, password, and sync_id.
         
         Args:
             url: Base API URL
             username: Username for authentication
             password: Password for authentication
+            sync_id: Institute sync ID
             
         Returns:
-            Dict containing access_token, refresh_token, and expires_in
+            Dict containing token, user_id, username, institute_id, and institute_name
             
         Raises:
             APIAuthenticationError: If authentication fails
             APINetworkError: If network issues occur
         """
         try:
-            self.logger.debug(f"Authenticating with JWT at {url}")
+            self.logger.debug(f"Authenticating with desktop login at {url}")
             
             # Prepare authentication data
             auth_data = {
                 "username": username,
-                "password": password
+                "password": password,
+                "sync_id": sync_id
             }
             
             # Make authentication request
-            auth_url = f"{url.rstrip('/')}/api/token/"
+            from core.constants import API_ENDPOINTS
+            auth_url = f"{url.rstrip('/')}{API_ENDPOINTS['DESKTOP_LOGIN']}"
             response = requests.post(auth_url, json=auth_data, timeout=10)
             
             if response.status_code == 200:
-                token_data = self.parse_response(response)
+                login_data = self.parse_response(response)
                 
                 # Validate required fields
-                required_fields = ["access", "refresh"]
+                required_fields = ["token", "user_id", "username", "institute_id", "institute_name"]
                 for field in required_fields:
-                    if field not in token_data:
+                    if field not in login_data:
                         raise APIAuthenticationError(f"Missing required field: {field}")
                 
-                # Calculate expires_in if not provided
-                if "expires_in" not in token_data:
-                    token_data["expires_in"] = self.token_manager.calculate_expires_in(token_data["access"])
-                
-                self.logger.info("JWT authentication successful")
+                self.logger.info(f"Desktop login successful for user: {login_data['username']} at institute: {login_data['institute_name']}")
                 return {
-                    "access_token": token_data["access"],
-                    "refresh_token": token_data["refresh"],
-                    "expires_in": token_data.get("expires_in", 3600)
+                    "token": login_data["token"],
+                    "user_id": login_data["user_id"],
+                    "username": login_data["username"],
+                    "institute_id": str(login_data["institute_id"]),
+                    "institute_name": login_data["institute_name"]
                 }
             else:
-                error_msg = f"Authentication failed with status {response.status_code}"
+                error_msg = f"Desktop login failed with status {response.status_code}"
                 if response.text:
                     try:
                         error_data = response.json()
-                        error_msg = error_data.get("detail", error_msg)
+                        error_msg = error_data.get("detail", error_data.get("message", error_msg))
                     except:
                         error_msg = f"{error_msg}: {response.text}"
                 
@@ -174,93 +146,39 @@ class APIAuthentication:
         except Exception as e:
             raise APICallError(f"Unexpected error during authentication: {str(e)}")
 
-    def refresh_jwt_token(self, url: str) -> bool:
-        """
-        Refresh JWT access token using refresh token.
-        
-        Args:
-            url: Base API URL
-            
-        Returns:
-            bool: True if refresh successful, False otherwise
-        """
-        try:
-            refresh_token = self.token_manager.get_refresh_token()
-            if not refresh_token:
-                self.logger.warning("No refresh token available")
-                return False
-            
-            self.logger.debug("Refreshing JWT token")
-            
-            # Prepare refresh data
-            refresh_data = {
-                "refresh": refresh_token
-            }
-            
-            # Make refresh request
-            refresh_url = f"{url.rstrip('/')}/api/token/refresh/"
-            response = requests.post(refresh_url, json=refresh_data, timeout=10)
-            
-            if response.status_code == 200:
-                token_data = self.parse_response(response)
-                
-                if "access" in token_data:
-                    # Update tokens
-                    expires_in = self.token_manager.calculate_expires_in(token_data["access"])
-                    self.token_manager.set_tokens(
-                        token_data["access"],
-                        refresh_token,  # Keep existing refresh token
-                        expires_in
-                    )
-                    
-                    self.logger.info("JWT token refreshed successfully")
-                    return True
-                else:
-                    self.logger.error("Refresh response missing access token")
-                    return False
-            else:
-                self.logger.error(f"Token refresh failed with status {response.status_code}")
-                return False
-                
-        except Exception as e:
-            self.logger.error(f"Error refreshing JWT token: {e}")
-            return False
+# Remove the refresh_jwt_token method as it's not needed for token-based auth
 
-    def get_valid_jwt_token(self, url: str, username: str, password: str) -> Optional[str]:
+    def get_valid_auth_token(self, url: str, username: str, password: str, sync_id: str) -> Optional[str]:
         """
-        Get a valid JWT access token, refreshing if necessary.
+        Get a valid authentication token using desktop login.
         
         Args:
             url: Base API URL
             username: Username for authentication
             password: Password for authentication
+            sync_id: Institute sync ID
             
         Returns:
-            Optional[str]: Valid access token or None if failed
+            Optional[str]: Valid authentication token or None if failed
         """
         try:
             # Check if we have a valid token
-            access_token = self.token_manager.get_valid_access_token()
-            if access_token:
-                return access_token
+            auth_token = self.token_manager.get_valid_auth_token()
+            if auth_token:
+                return auth_token
             
-            # Try to refresh existing token
-            if self.token_manager.get_refresh_token():
-                if self.refresh_jwt_token(url):
-                    return self.token_manager.get_valid_access_token()
-            
-            # Perform fresh authentication
-            token_data = self.authenticate_with_jwt(url, username, password)
-            self.token_manager.set_tokens(
-                token_data["access_token"],
-                token_data["refresh_token"],
-                token_data["expires_in"]
+            # Perform desktop login authentication
+            login_data = self.authenticate_with_desktop_login(url, username, password, sync_id)
+            self.token_manager.set_auth_token(
+                login_data["token"],
+                login_data["institute_id"],
+                login_data["institute_name"]
             )
             
-            return self.token_manager.get_valid_access_token()
+            return self.token_manager.get_valid_auth_token()
             
         except Exception as e:
-            self.logger.error(f"Failed to get valid JWT token: {e}")
+            self.logger.error(f"Failed to get valid auth token: {e}")
             return None
 
     def make_authenticated_request(
@@ -269,10 +187,11 @@ class APIAuthentication:
         url: str, 
         json_data: dict = None,
         username: str = None,
-        password: str = None
+        password: str = None,
+        sync_id: str = None
     ) -> requests.Response:
         """
-        Execute an authenticated HTTP request with automatic JWT token handling.
+        Execute an authenticated HTTP request with token-based authentication.
         
         Args:
             method: HTTP method ('GET' or 'POST')
@@ -280,6 +199,7 @@ class APIAuthentication:
             json_data: JSON payload for POST requests
             username: Username for authentication (if needed)
             password: Password for authentication (if needed)
+            sync_id: Sync ID for authentication (if needed)
             
         Returns:
             requests.Response: The HTTP response object
@@ -291,15 +211,15 @@ class APIAuthentication:
         try:
             self.logger.debug(f"Making {method} request to {url}")
             
-            # Get valid JWT token
-            access_token = self.token_manager.get_valid_access_token()
-            if not access_token:
-                raise APIAuthenticationError("No valid access token available")
+            # Get valid auth token
+            auth_token = self.token_manager.get_valid_auth_token()
+            if not auth_token:
+                raise APIAuthenticationError("No valid authentication token available")
             
-            # Prepare headers
+            # Prepare headers with Token authentication
             headers = {
                 "Content-Type": "application/json",
-                "Authorization": f"Bearer {access_token}"
+                "Authorization": f"Token {auth_token}"
             }
             
             # Make request
@@ -310,13 +230,16 @@ class APIAuthentication:
             else:
                 raise APICallError(f"Unsupported HTTP method: {method}")
             
-            # Handle token expiration
-            if response.status_code == 401:
-                self.logger.warning("Access token expired, attempting refresh")
-                if self.refresh_jwt_token(url):
+            # Handle token expiration/invalidation
+            if response.status_code == 401 and username and password and sync_id:
+                self.logger.warning("Authentication token invalid, attempting re-login")
+                # Clear invalid token
+                self.token_manager.clear_tokens()
+                # Get new token
+                new_token = self.get_valid_auth_token(url, username, password, sync_id)
+                if new_token:
                     # Retry request with new token
-                    access_token = self.token_manager.get_valid_access_token()
-                    headers["Authorization"] = f"Bearer {access_token}"
+                    headers["Authorization"] = f"Token {new_token}"
                     
                     if method.upper() == "GET":
                         response = requests.get(url, headers=headers, timeout=10)

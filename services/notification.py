@@ -12,6 +12,9 @@ try:
     NOTIFY_AVAILABLE = True
 except ImportError:
     NOTIFY_AVAILABLE = False
+except Exception as e:
+    # Handle other potential import issues
+    NOTIFY_AVAILABLE = False
 
 
 class NotificationService:
@@ -30,10 +33,11 @@ class NotificationService:
             if NOTIFY_AVAILABLE:
                 # Create a custom icon in temp directory if it exists
                 self.icon_path = self._prepare_notification_icon()
-                self.logger.info("Notification system initialized with notify-py")
+                self.logger.info("Notification system initialized successfully with notify-py")
             else:
-                self.logger.warning(
-                    "notify-py not available, using fallback notifications"
+                self.logger.info(
+                    "System notifications not available (notify-py not installed). "
+                    "Using log-based notifications. Install notify-py for desktop notifications."
                 )
         except Exception as e:
             self.logger.error(f"Failed to initialize notification system: {e}")
@@ -92,15 +96,13 @@ class NotificationService:
                     notification.urgency = urgency_map.get(notification_type, "normal")
 
                     # Platform-specific settings
-                    if platform.system() == "Darwin":  # macOS
+                    if platform.system() == "Windows":
                         notification.application_name = "PrimeSync"
-                    elif platform.system() == "Windows":
-                        pass  # Windows doesn't have this issue
-                    else:  # Linux
+                    else:  # Linux/macOS
                         notification.application_name = "PrimeSync"
 
                     notification.send(block=False)
-                    self.logger.debug(f"Notification sent successfully: {title}")
+                    self.logger.debug(f"Desktop notification sent successfully: {title}")
                 except Exception as e:
                     self.logger.error(f"Failed to send notification with notify-py: {e}")
                     # Fall back to logging

@@ -31,65 +31,113 @@ class APISync:
         self.cloud_api_url = ""
         self.username = ""
         self.password = ""
-        self.institute_id = ""
+        self.sync_id = ""  # Changed from institute_id to sync_id
+        self.institute_id = ""  # Will be populated from login response
+        self.security_manager = None  # Will be set by API client
 
     def load_settings(self) -> None:
-        """Load settings from repository."""
+        """Load settings from repository with proper password decryption."""
         try:
             settings = self.settings_repo.get_settings()
             if settings:
                 self.cloud_api_url = settings.cloud_api_url or ""
                 self.username = settings.username or ""
+                # Decrypt password if available
                 if settings.password:
-                    # Note: This assumes security manager is available in the calling context
-                    # In a real implementation, you'd pass the decrypted password
-                    self.password = settings.password
+                    try:
+                        # Use security manager if available
+                        if self.security_manager:
+                            self.password = self.security_manager.decrypt(settings.password)
+                        else:
+                            self.logger.warning("Security manager not available for password decryption")
+                            self.password = settings.password  # Use as-is if cannot decrypt
+                    except Exception as e:
+                        self.logger.warning(f"Failed to decrypt password: {e}")
+                        self.password = ""  # Clear password if decryption fails
                 else:
                     self.password = ""
+                self.sync_id = settings.sync_id or ""
                 self.institute_id = settings.institute_id or ""
+                
+                # Load encrypted auth token if available
+                if settings.auth_token and self.security_manager:
+                    try:
+                        decrypted_token = self.security_manager.decrypt(settings.auth_token)
+                        # Set the token in the auth manager
+                        self.auth_manager.token_manager.set_auth_token(
+                            decrypted_token, 
+                            settings.institute_id,
+                            ""  # Institute name not stored in settings
+                        )
+                        self.logger.debug("Loaded and set stored auth token")
+                    except Exception as e:
+                        self.logger.warning(f"Failed to decrypt stored auth token: {e}")
+                
+                self.logger.debug(f"Loaded settings - URL: {bool(self.cloud_api_url)}, Username: {bool(self.username)}, Password: {bool(self.password)}, Sync ID: {bool(self.sync_id)}, Institute ID: {bool(self.institute_id)}, Auth Token: {bool(self.auth_manager.token_manager.get_valid_auth_token())}")
             else:
                 # Set default values if no settings exist
                 self.cloud_api_url = ""
                 self.username = ""
                 self.password = ""
+                self.sync_id = ""
                 self.institute_id = ""
+                self.logger.warning("No settings found - using empty values")
         except Exception as e:
             self.logger.error(f"Failed to load settings: {e}")
             # Set default values on error
             self.cloud_api_url = ""
             self.username = ""
             self.password = ""
+            self.sync_id = ""
             self.institute_id = ""
 
-    def test_connection(self, url: str, username: str, password: str, institute_id: str) -> bool:
+    def test_connection(self, url: str, username: str, password: str, sync_id: str) -> bool:
         """
-        Test connection to DRF backend with JWT authentication.
+        Test connection to DRF backend with desktop login authentication.
         
         Args:
             url: Base API URL
             username: Username for authentication
             password: Password for authentication
-            institute_id: Institute ID for testing
+            sync_id: Institute sync ID for authentication
             
         Returns:
             bool: True if connection successful, False otherwise
         """
         try:
-            # Authenticate and get JWT tokens
-            token_data = self.auth_manager.authenticate_with_jwt(url, username, password)
-            self.auth_manager.token_manager.set_tokens(
-                token_data["access_token"],
-                token_data["refresh_token"],
-                int(token_data["expires_in"]) if "expires_in" in token_data else None,
+            # Authenticate with desktop login
+            login_data = self.auth_manager.authenticate_with_desktop_login(url, username, password, sync_id)
+            self.auth_manager.token_manager.set_auth_token(
+                login_data["token"],
+                login_data["institute_id"],
+                login_data["institute_name"]
             )
             
+            # Save institute_id and auth_token to settings for future use
+            try:
+                settings = self.settings_repo.get_settings()
+                if settings and self.security_manager:
+                    settings.institute_id = login_data["institute_id"]
+                    # Encrypt and save the auth token
+                    encrypted_token = self.security_manager.encrypt(login_data["token"])
+                    settings.auth_token = encrypted_token
+                    settings.save()
+                    self.institute_id = login_data["institute_id"]  # Update local cache
+                    self.logger.info(f"Updated institute_id to {login_data['institute_id']} and saved auth_token to settings")
+                else:
+                    self.logger.warning("Settings or security manager not available for saving auth token")
+            except Exception as e:
+                self.logger.warning(f"Failed to save institute_id and auth_token to settings: {e}")
+            
             # Test API access with institute info endpoint
-            test_url = f"{url.rstrip('/')}/api/institute/{institute_id}/info/"
-            response = self.auth_manager.make_authenticated_request("GET", test_url)
+            test_url = f"{url.rstrip('/')}/api/institute/{login_data['institute_id']}/info/"
+            response = self.auth_manager.make_authenticated_request(
+                "GET", test_url, username=username, password=password, sync_id=sync_id
+            )
             
             if response.status_code == 200:
                 institute_data = self.auth_manager.parse_response(response)
-                self.logger.info(f"Successfully connected to institute: {institute_data.get('name', 'Unknown')}")
+                self.logger.info(f"Successfully connected to institute: {institute_data.get('name', login_data['institute_name'])}")
                 return True
             else:
                 self.logger.error(f"API access test failed: {response.status_code}")
@@ -103,25 +151,33 @@ class APISync:
             return False
 
     def post_to_cloud(self) -> None:
-        """Post attendance data to the cloud API using JWT authentication."""
+        """Post attendance data to the cloud API using JWT authentication with improved performance."""
         self.logger.info("Starting data post to cloud")
         try:
-            # Get pending attendance records
+            # Get pending attendance records efficiently
             attendance_data = self.attendance_repo.cloud_format()
             if not attendance_data:
                 self.logger.warning("No valid attendance data to post")
+                self.notification_service.notify(
+                    "Sync Info", "No pending attendance data to sync", "info"
+                )
                 return
 
-            # Post to API using JWT authentication
+            self.logger.info(f"Posting {len(attendance_data)} attendance records to cloud")
+            
+            # Post to API using Token authentication
             url = f"{self.cloud_api_url.rstrip('/')}{API_ENDPOINTS['ATTENDANCE']}"
-            response = self.auth_manager.make_authenticated_request("POST", url, {"attendance": attendance_data})
+            response = self.auth_manager.make_authenticated_request(
+                "POST", url, {"attendance": attendance_data},
+                username=self.username, password=self.password, sync_id=self.sync_id
+            )
 
             if response.status_code == 200:
-                # Mark records as posted
-                pending_attendance = self.attendance_repo.get_pending()
-                for record in pending_attendance:
-                    record.posted = True
-                    record.save()
+                # Mark records as posted efficiently using batch update
+                attendance_ids = [record["id"] for record in attendance_data if "id" in record]
+                if attendance_ids:
+                    posted_count = self.attendance_repo.mark_as_posted(attendance_ids)
+                    self.logger.info(f"Marked {posted_count} attendance records as posted")
 
                 self.logger.info(
                     f"Successfully posted {len(attendance_data)} attendance records"
@@ -132,7 +188,14 @@ class APISync:
                     "info",
                 )
             else:
-                raise APICallError(f"API returned status code {response.status_code}")
+                error_msg = f"API returned status code {response.status_code}"
+                if response.text:
+                    try:
+                        error_data = response.json()
+                        error_msg += f": {error_data.get('detail', response.text)}"
+                    except:
+                        error_msg += f": {response.text}"
+                raise APICallError(error_msg)
 
         except APINetworkError as e:
             self.logger.error(f"Network error posting to cloud: {e.message}")
@@ -187,6 +250,32 @@ class APISync:
         """
         self.logger.info("Starting user and device synchronization")
         try:
+            # Check if we have proper API configuration
+            if not all([self.cloud_api_url, self.username, self.password, self.sync_id]):
+                self.logger.error("API configuration incomplete - missing URL, username, password, or sync_id")
+                self.notification_service.notify(
+                    "Sync Users", "API configuration incomplete. Please check settings.", "error"
+                )
+                return False
+            
+            # Ensure we have valid authentication before proceeding
+            try:
+                valid_token = self.auth_manager.get_valid_auth_token(
+                    self.cloud_api_url, self.username, self.password, self.sync_id
+                )
+                if not valid_token:
+                    self.logger.error("Failed to obtain valid authentication token")
+                    self.notification_service.notify(
+                        "Sync Users", "Authentication failed. Please check your credentials.", "error"
+                    )
+                    return False
+            except Exception as auth_error:
+                self.logger.error(f"Authentication error: {auth_error}")
+                self.notification_service.notify(
+                    "Sync Users", f"Authentication failed: {str(auth_error)}", "error"
+                )
+                return False
+
             # Step 1: Pull users and devices from cloud API
             cloud_data = self._pull_users_from_cloud()
             if not cloud_data:
@@ -231,7 +320,9 @@ class APISync:
         try:
             # Use the attendance device-users endpoint
             url = f"{self.cloud_api_url.rstrip('/')}{API_ENDPOINTS['USERS']}{self.institute_id}/"
-            response = self.auth_manager.make_authenticated_request("GET", url)
+            response = self.auth_manager.make_authenticated_request(
+                "GET", url, username=self.username, password=self.password, sync_id=self.sync_id
+            )
             
             if response.status_code == 200:
                 data = self.auth_manager.parse_response(response)

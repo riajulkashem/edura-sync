@@ -170,7 +170,8 @@ class Settings(BaseModel):
     cloud_api_url = CharField(default="", index=True)
     username = CharField(default="")
     password = CharField(default="", help_text="Encrypted password")
-    institute_id = CharField(default="", index=True)
+    sync_id = CharField(default="", index=True, help_text="Institute sync ID for desktop login")
+    institute_id = CharField(default="", index=True, help_text="Institute ID from login response")
     auth_token = CharField(default="", null=True)
     in_time_process = TimeField(null=True)
     out_time_process = TimeField(null=True)
@@ -192,6 +193,8 @@ class Settings(BaseModel):
                 Validator.validate_username(self.username)
             if self.password:
                 Validator.validate_password(self.password)
+            if self.sync_id:
+                Validator.validate_institute_id(self.sync_id)  # Use same validation as institute_id
             if self.institute_id:
                 Validator.validate_institute_id(self.institute_id)
         except ValidationError as e:
@@ -201,26 +204,33 @@ class Settings(BaseModel):
 def create_indexes():
     """Create additional indexes for performance optimization."""
     try:
-        # Create indexes for common query patterns
+        # Create indexes for common query patterns with improved performance
         db.execute_sql(
-            "CREATE INDEX IF NOT EXISTS idx_attendance_user_timestamp ON attendance_logs (user_id, timestamp)"
+            "CREATE INDEX IF NOT EXISTS idx_attendance_user_timestamp_posted ON attendance_logs (user_id, timestamp, posted)"
         )
         db.execute_sql(
-            "CREATE INDEX IF NOT EXISTS idx_attendance_posted ON attendance_logs (posted)"
+            "CREATE INDEX IF NOT EXISTS idx_attendance_posted_timestamp ON attendance_logs (posted, timestamp)"
         )
         db.execute_sql(
-            "CREATE INDEX IF NOT EXISTS idx_user_device ON users (device_id)"
+            "CREATE INDEX IF NOT EXISTS idx_user_device_saved ON users (device_id, saved_to_device)"
         )
         db.execute_sql(
-            "CREATE INDEX IF NOT EXISTS idx_user_saved ON users (saved_to_device)"
+            "CREATE INDEX IF NOT EXISTS idx_user_type_device ON users (user_type, device_id)"
         )
         db.execute_sql(
-            "CREATE INDEX IF NOT EXISTS idx_device_status ON devices (status)"
+            "CREATE INDEX IF NOT EXISTS idx_device_status_model ON devices (status, device_model)"
         )
         db.execute_sql(
-            "CREATE INDEX IF NOT EXISTS idx_settings_sync ON settings (last_sync)"
+            "CREATE INDEX IF NOT EXISTS idx_settings_sync_status ON settings (last_sync, last_post)"
         )
-
+        # Add covering indexes for better query performance
+        db.execute_sql(
+            "CREATE INDEX IF NOT EXISTS idx_attendance_user_status_timestamp ON attendance_logs (user_id, status, timestamp) WHERE posted = 0"
+        )
+        db.execute_sql(
+            "CREATE INDEX IF NOT EXISTS idx_user_active_device ON users (user_id, device_id) WHERE saved_to_device = 1"
+        )
+        
         logger.info("Database indexes created successfully")
     except Exception as e:
         logger.error(f"Failed to create database indexes: {e}")

@@ -65,11 +65,7 @@ class Config(Singleton):
         """Set BASE_DIR and INSTALL_DIR based on whether running as bundled or source."""
         if getattr(sys, "frozen", False):
             self.BASE_DIR = Path(sys._MEIPASS)  # PyInstaller temp directory
-            self.INSTALL_DIR = (
-                Path("C:/Program Files/PrimeSyncTrayApp")
-                if sys.platform == "win32"
-                else Path.home() / "Applications/PrimeSyncTrayApp"
-            )
+            self.INSTALL_DIR = Path("C:/Program Files/PrimeSyncTrayApp")
         else:
             self.BASE_DIR = Path(__file__).parent.parent  # Project root
             self.INSTALL_DIR = self.BASE_DIR

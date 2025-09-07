@@ -193,7 +193,7 @@ class PrimeSync:
             )
 
     def _add_to_startup(self) -> None:
-        """Add application to system startup (Windows or macOS)."""
+        """Add application to system startup (Windows only)."""
         try:
             import os
             import platform
@@ -202,45 +202,6 @@ class PrimeSync:
             if platform.system() == "Windows":
                 # Windows autostart is handled by the installer (registry)
                 pass
-            elif platform.system() == "Darwin":  # macOS
-                import plistlib
-
-                # Create a macOS LaunchAgent plist file
-                home = os.path.expanduser("~")
-                launch_agents_dir = os.path.join(home, "Library/LaunchAgents")
-
-                if not os.path.exists(launch_agents_dir):
-                    os.makedirs(launch_agents_dir)
-
-                plist_path = os.path.join(
-                    launch_agents_dir, "com.primesync.trayapp.plist"
-                )
-
-                # Check if already added to startup
-                if os.path.exists(plist_path):
-                    self.logger.info("Application already added to system startup")
-                    return
-
-                if getattr(sys, "frozen", False):
-                    # Running as compiled app
-                    executable_path = sys.executable
-                else:
-                    # Running as script
-                    executable_path = sys.executable
-                    script_path = os.path.abspath(sys.argv[0])
-                    executable_path = f"{executable_path} {script_path}"
-
-                plist_content = {
-                    "Label": "com.primesync.trayapp",
-                    "ProgramArguments": [executable_path],
-                    "RunAtLoad": True,
-                    "KeepAlive": False,
-                }
-
-                with open(plist_path, "wb") as f:
-                    plistlib.dump(plist_content, f)
-
-                self.logger.info("Added to system startup")
             else:
                 self.logger.info("System startup not supported on this platform")
 
@@ -277,7 +238,7 @@ class PrimeSync:
             self.exit_app()
 
     def exit_app(self) -> None:
-        """Cleanly exit the application, shutting down all components."""
+        """Cleanly exit the application with improved error handling for threading issues."""
         if not self.running:
             self.logger.info("Exit requested but application already shutting down")
             return
@@ -285,16 +246,60 @@ class PrimeSync:
         self.logger.info("Initiating application shutdown")
 
         try:
+            # Stop tray first to prevent further callbacks
             self.tray.stop()
+            
+            # Schedule GUI cleanup on the main thread if it exists
+            if hasattr(self, 'root') and self.root:
+                try:
+                    # Check if we're in the main thread
+                    import threading
+                    if threading.current_thread() is threading.main_thread():
+                        self._cleanup_gui()
+                    else:
+                        # Schedule cleanup on main thread
+                        self.root.after(0, self._cleanup_gui)
+                        # Give time for the main thread to process
+                        import time
+                        time.sleep(0.1)
+                except Exception as e:
+                    self.logger.error(f"Error during GUI cleanup: {e}")
+            
+            # Close database connection
             if not db.is_closed():
                 db.close()
-            self.root.quit()
-            self.root.destroy()
-            self.logger.info(LOG_MESSAGES["APP_SHUTDOWN"])
-            sys.exit(0)
+                
+            self.logger.info("Application shutdown complete")
+            
         except Exception as e:
-            self.logger.error(f"Critical error during shutdown: {e}")
-            sys.exit(1)
+            self.logger.error(f"Error during shutdown: {e}")
+        finally:
+            # Force exit if we're not in the main thread
+            import threading
+            if threading.current_thread() is not threading.main_thread():
+                import os
+                os._exit(0)
+            else:
+                sys.exit(0)
+    
+    def _cleanup_gui(self) -> None:
+        """Clean up GUI components safely."""
+        try:
+            if hasattr(self, 'root') and self.root:
+                # Withdraw window first
+                self.root.withdraw()
+                # Then quit the main loop
+                self.root.quit()
+                # Finally destroy (this may fail if not in main thread)
+                try:
+                    self.root.destroy()
+                except RuntimeError as e:
+                    if "main thread is not in main loop" in str(e):
+                        self.logger.warning("Cannot destroy GUI from non-main thread, forcing exit")
+                    else:
+                        raise
+        except Exception as e:
+            self.logger.error(f"Error cleaning up GUI: {e}")
 
 
 if __name__ == "__main__":

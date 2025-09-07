@@ -25,12 +25,12 @@ class DeviceConnectionFactory:
     @staticmethod
     def create_connection(device: Device, max_retries: int = 3, retry_delay: float = 1.0) -> Optional[ZK]:
         """
-        Create a connection to a ZKTeco device with retry logic.
+        Create a connection to a ZKTeco device with enhanced retry logic and exponential backoff.
         
         Args:
             device: Device model containing connection details.
             max_retries: Maximum number of connection attempts.
-            retry_delay: Delay between retry attempts in seconds.
+            retry_delay: Initial delay between retry attempts in seconds.
             
         Returns:
             Optional[ZK]: Connected ZK instance or None if connection fails.
@@ -39,43 +39,56 @@ class DeviceConnectionFactory:
             DeviceConnectionError: If connection fails after all retries.
         """
         logger = logging.getLogger(__name__)
+        last_exception = None
 
         for attempt in range(max_retries):
             try:
+                # Calculate exponential backoff delay
+                current_delay = retry_delay * (2 ** attempt)
+                
+                logger.debug(
+                    f"Connection attempt {attempt + 1}/{max_retries} for {device.ip_address}:{device.port}"
+                )
+                
                 zk = ZK(
                     device.ip_address,
                     port=device.port,
                     password=device.password,
-                    timeout=5,
+                    timeout=10,  # Increased timeout for better reliability
                 )
+                
                 conn = zk.connect()
                 if conn:
-                    logger.debug(
-                        f"Connected to device {device.ip_address}:{device.port} on attempt {attempt + 1}"
+                    logger.info(
+                        f"Successfully connected to device {device.ip_address}:{device.port} on attempt {attempt + 1}"
                     )
                     return zk
                 else:
                     raise DeviceConnectionError(
                         f"Failed to establish connection to device {device.ip_address}"
                     )
-            except DeviceConnectionError:
-                # Re-raise device connection errors immediately
-                raise
+                    
+            except DeviceConnectionError as e:
+                last_exception = e
+                logger.warning(f"Device connection error on attempt {attempt + 1}: {e.message}")
             except Exception as e:
+                last_exception = e
                 logger.warning(
-                    f"Connection attempt {attempt + 1} failed for {device.ip_address}: {e}"
+                    f"Connection attempt {attempt + 1} failed for {device.ip_address}: {str(e)}"
                 )
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay)
-                    return None
-                else:
-                    logger.error(
-                        f"All connection attempts failed for device {device.ip_address}"
-                    )
-                    raise DeviceConnectionError(
-                        f"Failed to connect to device {device.ip_address} after {max_retries} attempts: {str(e)}"
-                    )
-        return None
+            
+            # Wait before retry (except on last attempt)
+            if attempt < max_retries - 1:
+                logger.debug(f"Waiting {current_delay:.1f}s before retry...")
+                time.sleep(current_delay)
+        
+        # All attempts failed
+        error_msg = f"Failed to connect to device {device.ip_address} after {max_retries} attempts"
+        if last_exception:
+            error_msg += f": {str(last_exception)}"
+            
+        logger.error(error_msg)
+        raise DeviceConnectionError(error_msg)
 
 
 class DeviceManager:
@@ -129,7 +142,7 @@ class DeviceManager:
             self.logger.error(f"Failed to update device status for {device.ip_address}: {e}")
 
     def _process_device_connection(self, device: Device) -> Optional[ZK]:
-        """Process device connection with status updates."""
+        """Process device connection with status updates and proper resource management."""
         try:
             zk = DeviceConnectionFactory.create_connection(device)
             self._update_device_status(device, "Online")
@@ -142,6 +155,15 @@ class DeviceManager:
             self._update_device_status(device, "Error", str(e))
             self.logger.error(f"Unexpected error connecting to device {device.ip_address}: {e}")
             return None
+
+    def _safe_disconnect(self, zk: ZK, device_ip: str) -> None:
+        """Safely disconnect from device with error handling."""
+        try:
+            if zk:
+                zk.disconnect()
+                self.logger.debug(f"Disconnected from device {device_ip}")
+        except Exception as e:
+            self.logger.warning(f"Error disconnecting from device {device_ip}: {e}")
 
     def check_devices(self) -> int:
         """
@@ -164,13 +186,15 @@ class DeviceManager:
             total_devices = len(devices)
 
             for device in devices:
+                zk = None
                 try:
                     zk = self._process_device_connection(device)
                     if zk:
                         online_count += 1
-                        zk.disconnect()
                 except Exception as e:
                     self.logger.error(f"Error checking device {device.ip_address}: {e}")
+                finally:
+                    self._safe_disconnect(zk, device.ip_address)
 
             self.logger.info(f"Device check completed: {online_count}/{total_devices} devices online")
             
@@ -224,78 +248,145 @@ class DeviceManager:
             raise DeviceOperationError(f"Failed to extract data from device {device.ip_address}: {str(e)}")
 
     def _save_users_to_database(self, users: List, device: Device) -> int:
-        """Save users to database."""
+        """Save users to database with batch processing for better performance."""
+        if not users:
+            return 0
+            
         saved_count = 0
-        for user in users:
-            try:
-                # Check if user already exists
-                existing_user = self.user_repo.get_by_user_id(user.user_id)
-                if not existing_user:
-                    # Create new user
-                    db_user = User(
-                        user_id=user.user_id,
-                        name=user.name,
-                        privilege=user.privilege,
-                        password=user.password,
-                        group_id=user.group_id,
-                        user_sns=user.user_sns,
-                        card=user.card,
-                        device=device,
-                    )
-                    db_user.save()
-                    saved_count += 1
-                    self.logger.debug(f"Saved new user: {user.name} (ID: {user.user_id})")
-                else:
-                    # Update existing user
-                    existing_user.name = user.name
-                    existing_user.privilege = user.privilege
-                    existing_user.password = user.password
-                    existing_user.group_id = user.group_id
-                    existing_user.user_sns = user.user_sns
-                    existing_user.card = user.card
-                    existing_user.updated_at = datetime.now()
-                    existing_user.save()
-                    self.logger.debug(f"Updated existing user: {user.name} (ID: {user.user_id})")
-            except Exception as e:
-                self.logger.error(f"Failed to save user {user.user_id}: {e}")
-
-        return saved_count
+        batch_size = 100  # Process users in batches
+        
+        try:
+            # Process users in batches for better performance
+            for i in range(0, len(users), batch_size):
+                batch = users[i:i + batch_size]
+                batch_users = []
+                update_users = []
+                
+                for user in batch:
+                    try:
+                        # Check if user already exists
+                        existing_user = self.user_repo.get_by_user_id(user.user_id)
+                        if not existing_user:
+                            # Prepare for batch insert
+                            user_data = {
+                                'uid': getattr(user, 'uid', 0),
+                                'user_id': user.user_id,
+                                'name': getattr(user, 'name', ''),
+                                'role': getattr(user, 'privilege', 0),
+                                'password': getattr(user, 'password', ''),
+                                'group_id': getattr(user, 'group_id', None),
+                                'card': getattr(user, 'card', None),
+                                'device': device,
+                                'saved_to_device': False
+                            }
+                            batch_users.append(user_data)
+                        else:
+                            # Update existing user
+                            update_data = {
+                                'name': getattr(user, 'name', existing_user.name),
+                                'role': getattr(user, 'privilege', existing_user.role),
+                                'password': getattr(user, 'password', existing_user.password),
+                                'group_id': getattr(user, 'group_id', existing_user.group_id),
+                                'card': getattr(user, 'card', existing_user.card),
+                            }
+                            self.user_repo.update(existing_user, **update_data)
+                            update_users.append(existing_user)
+                            
+                    except Exception as e:
+                        self.logger.error(f"Error processing user {getattr(user, 'user_id', 'unknown')}: {e}")
+                        continue
+                
+                # Bulk insert new users
+                if batch_users:
+                    try:
+                        saved_count += self.user_repo.create_bulk(batch_users)
+                        self.logger.debug(f"Batch inserted {len(batch_users)} users")
+                    except Exception as e:
+                        self.logger.error(f"Error in batch insert: {e}")
+                        # Fallback to individual inserts
+                        for user_data in batch_users:
+                            try:
+                                self.user_repo.create(**user_data)
+                                saved_count += 1
+                            except Exception as e2:
+                                self.logger.error(f"Error inserting user {user_data.get('user_id')}: {e2}")
+                
+                saved_count += len(update_users)
+                
+            self.logger.info(f"Processed {len(users)} users: {saved_count} saved/updated")
+            return saved_count
+            
+        except Exception as e:
+            self.logger.error(f"Error in batch user processing: {e}")
+            raise DeviceOperationError(f"Failed to save users to database: {str(e)}")
 
     def _save_attendance_to_database(self, attendance_records: List, device: Device) -> int:
-        """Save attendance records to database."""
+        """Save attendance records to database with batch processing and duplicate prevention."""
+        if not attendance_records:
+            return 0
+            
         saved_count = 0
-        for record in attendance_records:
-            try:
-                # Get user for this attendance record
-                db_user = self.user_repo.get_by_user_id(record.user_id)
-                if not db_user:
-                    self.logger.warning(f"User {record.user_id} not found for attendance record")
-                    continue
-
-                # Check if attendance record already exists
-                existing_attendance = self.attendance_repo.get_by_device_user_timestamp(
-                    device, db_user, record.timestamp
-                )
+        batch_size = 200  # Process attendance in larger batches
+        
+        try:
+            # Process attendance in batches for better performance
+            for i in range(0, len(attendance_records), batch_size):
+                batch = attendance_records[i:i + batch_size]
+                batch_attendance = []
                 
-                if not existing_attendance:
-                    # Create new attendance record
-                    from interfaces.database.models import Attendance
-                    attendance = Attendance(
-                        user=db_user,
-                        device=device,
-                        timestamp=record.timestamp,
-                        status=record.status,
-                        punch=record.punch,
-                        uid=record.uid,
-                        posted=False,
-                    )
-                    attendance.save()
-                    saved_count += 1
-                    self.logger.debug(f"Saved attendance record for user {db_user.name}")
-            except Exception as e:
-                self.logger.error(f"Failed to save attendance record: {e}")
+                for record in batch:
+                    try:
+                        # Get user for this attendance record
+                        db_user = self.user_repo.get_by_user_id(str(getattr(record, 'user_id', '')))
+                        if not db_user:
+                            self.logger.warning(f"User {getattr(record, 'user_id', 'unknown')} not found for attendance record")
+                            continue
 
-        return saved_count
+                        # Check for duplicate attendance record (basic deduplication)
+                        record_timestamp = getattr(record, 'timestamp', None)
+                        if record_timestamp:
+                            existing_attendance = self.attendance_repo.get_by_device_user_timestamp(
+                                device, db_user, record_timestamp
+                            )
+                            if existing_attendance:
+                                continue  # Skip duplicate
+                        
+                        # Prepare attendance data for batch insert
+                        attendance_data = {
+                            'user': db_user,
+                            'timestamp': record_timestamp,
+                            'status': getattr(record, 'status', ''),
+                            'punch': getattr(record, 'punch', ''),
+                            'uid': getattr(record, 'uid', None),
+                            'posted': False,
+                        }
+                        batch_attendance.append(attendance_data)
+                        
+                    except Exception as e:
+                        self.logger.error(f"Error processing attendance record: {e}")
+                        continue
+                
+                # Bulk insert attendance records
+                if batch_attendance:
+                    try:
+                        saved_count += self.attendance_repo.create_bulk(batch_attendance)
+                        self.logger.debug(f"Batch inserted {len(batch_attendance)} attendance records")
+                    except Exception as e:
+                        self.logger.error(f"Error in batch attendance insert: {e}")
+                        # Fallback to individual inserts
+                        for att_data in batch_attendance:
+                            try:
+                                self.attendance_repo.create(**att_data)
+                                saved_count += 1
+                            except Exception as e2:
+                                self.logger.error(f"Error inserting attendance record: {e2}")
+            
+            self.logger.info(f"Processed {len(attendance_records)} attendance records: {saved_count} saved")
+            return saved_count
+            
+        except Exception as e:
+            self.logger.error(f"Error in batch attendance processing: {e}")
+            raise DeviceOperationError(f"Failed to save attendance to database: {str(e)}")
 
     def pull_data(self) -> None:
         """Pull data from all configured devices."""
@@ -314,6 +405,7 @@ class DeviceManager:
             processed_devices = 0
 
             for device in devices:
+                zk = None
                 try:
                     zk = self._process_device_connection(device)
                     if not zk:
@@ -331,7 +423,6 @@ class DeviceManager:
                     total_attendance += attendance_saved
                     
                     processed_devices += 1
-                    zk.disconnect()
                     
                     self.logger.info(
                         f"Device {device.ip_address}: {users_saved} users, {attendance_saved} attendance records"
@@ -339,6 +430,8 @@ class DeviceManager:
 
                 except Exception as e:
                     self.logger.error(f"Failed to pull data from device {device.ip_address}: {e}")
+                finally:
+                    self._safe_disconnect(zk, device.ip_address)
 
             # Send notification with results
             self.logger.info(
@@ -382,31 +475,36 @@ class DeviceManager:
             total_devices = len(devices)
 
             for device in devices:
+                zk = None
                 try:
                     zk = self._process_device_connection(device)
                     if not zk:
                         continue
 
                     # Migrate users to device
+                    device_migrated = 0
                     for user in users:
                         try:
                             zk.set_user(
-                                uid=user.user_id,
+                                uid=user.uid,
                                 name=user.name,
-                                privilege=user.privilege,
+                                privilege=user.role,
                                 password=user.password,
                                 group_id=user.group_id,
                                 card=user.card,
                             )
-                            migrated_count += 1
+                            device_migrated += 1
                             self.logger.debug(f"Migrated user {user.name} to device {device.ip_address}")
                         except Exception as e:
                             self.logger.error(f"Failed to migrate user {user.user_id} to device {device.ip_address}: {e}")
 
-                    zk.disconnect()
+                    migrated_count += device_migrated
+                    self.logger.info(f"Migrated {device_migrated} users to device {device.ip_address}")
 
                 except Exception as e:
                     self.logger.error(f"Failed to migrate users to device {device.ip_address}: {e}")
+                finally:
+                    self._safe_disconnect(zk, device.ip_address)
 
             self.logger.info(f"User migration completed: {migrated_count} users migrated to {total_devices} devices")
             

@@ -170,7 +170,7 @@ class DashboardGUI:
 {APP_NAME} - Attendance Management System
 
 Version: {Config().VERSION}
-Author: PrimeSync Team
+Author: Softzenix Limited
 
 This application provides attendance management for ZKTeco devices
 with cloud synchronization capabilities.
@@ -205,7 +205,7 @@ For support and updates, visit our website.
             links_frame.pack(pady=20)
 
             links = [
-                ("Website", "https://primesync.com"),
+                ("Website", "https://edurabd.com"),
                 ("GitHub", "https://github.com/primesync"),
                 ("Documentation", "https://docs.primesync.com"),
             ]
@@ -252,16 +252,32 @@ For support and updates, visit our website.
         self.device_manager = device_manager
 
     def _perform_action(self, action_func, action_name):
-        """Perform an action with error handling."""
+        """Perform an action with error handling and proper status reporting."""
         try:
             if action_func:
                 self.show_status_log(f"Executing {action_name}...", "info")
-                action_func()
-                self.show_status_log(f"{action_name} completed successfully", "success")
-                self.notification_service.notify(
-                    "Success", f"{action_name} completed successfully", "info"
-                )
-                # Refresh dashboard after action
+                
+                # Execute the action and check result if it returns a boolean
+                result = action_func()
+                
+                # Handle different return types
+                if result is False:  # Explicit False indicates failure
+                    error_msg = f"{action_name} failed"
+                    self.show_status_log(error_msg, "error")
+                    # Don't send duplicate notification - the action should have already notified
+                elif result is True or result is None:  # True or None indicates success
+                    success_msg = f"{action_name} completed successfully"
+                    self.show_status_log(success_msg, "success")
+                    # Only send success notification if action doesn't handle its own notifications
+                    if not hasattr(action_func, '__self__') or 'api_client' not in str(action_func.__self__):
+                        self.notification_service.notify(
+                            "Success", success_msg, "info"
+                        )
+                else:
+                    # Handle other return types
+                    self.show_status_log(f"{action_name} completed", "info")
+                    
+                # Refresh dashboard after action regardless of result
                 self._refresh_dashboard()
             else:
                 error_msg = f"{action_name} not available"

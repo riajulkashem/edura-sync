@@ -132,6 +132,45 @@ class DashboardContent:
             ("Refresh", self.dashboard._refresh_dashboard),
         ]
 
+        self.action_buttons = []
         for text, command in actions:
-            btn = create_button(button_frame, text=text, command=command)
-            btn.pack(side="left", padx=5) 
+            btn = create_button(button_frame, text=text, command=None)
+            self.action_buttons.append(btn)
+            btn.pack(side="left", padx=5)
+
+        def make_action_callback(cmd, btn_ref, orig_text):
+            def callback():
+                # Disable all buttons
+                for b in self.action_buttons:
+                    try:
+                        if b.winfo_exists():
+                            b.config(state="disabled")
+                    except:
+                        pass
+                # Change only clicked button text
+                try:
+                    if btn_ref.winfo_exists():
+                        btn_ref.config(text="Processing...")
+                        self.dashboard.dashboard_content.update_idletasks()
+                except:
+                    pass
+                try:
+                    cmd()
+                finally:
+                    # Restore all buttons safely
+                    for b in self.action_buttons:
+                        try:
+                            if b.winfo_exists():
+                                b.config(state="normal")
+                        except:
+                            pass
+                    # Restore clicked button text safely
+                    try:
+                        if btn_ref.winfo_exists():
+                            btn_ref.config(text=orig_text)
+                    except:
+                        pass
+            return callback
+
+        for btn, (text, command) in zip(self.action_buttons, actions):
+            btn.config(command=make_action_callback(command, btn, text))

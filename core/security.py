@@ -114,11 +114,7 @@ class SecurityManager:
             pass
 
         # Fallback to hostname
-        return (
-            os.uname().nodename
-            if hasattr(os, "uname")
-            else os.environ.get("COMPUTERNAME", "unknown")
-        )
+        return os.environ.get("COMPUTERNAME", "unknown")
 
     def encrypt(self, data: str) -> str:
         """
