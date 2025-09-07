@@ -117,11 +117,19 @@ class APISync:
             try:
                 settings = self.settings_repo.get_settings()
                 if settings and self.security_manager:
-                    settings.institute_id = login_data["institute_id"]
-                    # Encrypt and save the auth token
+                    # Encrypt the auth token
                     encrypted_token = self.security_manager.encrypt(login_data["token"])
-                    settings.auth_token = encrypted_token
-                    settings.save()
+                    
+                    # Use repository update method to only update specific fields
+                    update_data = {
+                        'institute_id': login_data["institute_id"],
+                        'auth_token': encrypted_token,
+                        'updated_at': datetime.now()
+                    }
+                    
+                    # Update only the specified fields
+                    self.settings_repo.update(settings, **update_data)
+                    
                     self.institute_id = login_data["institute_id"]  # Update local cache
                     self.logger.info(f"Updated institute_id to {login_data['institute_id']} and saved auth_token to settings")
                 else:
