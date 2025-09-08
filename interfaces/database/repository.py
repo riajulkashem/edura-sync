@@ -261,7 +261,7 @@ class AttendanceRepository(BaseRepository):
                     "timestamp": record.timestamp.isoformat() if record.timestamp else None,
                     "status": record.status,
                     "punch": record.punch,
-                    "uid": record.uid
+                    "uid": record.id
                 }
                 formatted_data.append(formatted_record)
                 

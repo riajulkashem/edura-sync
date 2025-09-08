@@ -486,7 +486,7 @@ class DeviceManager:
                     for user in users:
                         try:
                             zk.set_user(
-                                uid=user.uid,
+                                uid=user.id,
                                 name=user.name,
                                 privilege=user.role,
                                 password=user.password,

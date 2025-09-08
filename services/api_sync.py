@@ -257,67 +257,52 @@ class APISync:
             bool: True if sync was successful, False otherwise.
         """
         self.logger.info("Starting user and device synchronization")
-        try:
-            # Check if we have proper API configuration
-            if not all([self.cloud_api_url, self.username, self.password, self.sync_id]):
-                self.logger.error("API configuration incomplete - missing URL, username, password, or sync_id")
-                self.notification_service.notify(
-                    "Sync Users", "API configuration incomplete. Please check settings.", "error"
-                )
-                return False
-            
-            # Ensure we have valid authentication before proceeding
-            try:
-                valid_token = self.auth_manager.get_valid_auth_token(
-                    self.cloud_api_url, self.username, self.password, self.sync_id
-                )
-                if not valid_token:
-                    self.logger.error("Failed to obtain valid authentication token")
-                    self.notification_service.notify(
-                        "Sync Users", "Authentication failed. Please check your credentials.", "error"
-                    )
-                    return False
-            except Exception as auth_error:
-                self.logger.error(f"Authentication error: {auth_error}")
-                self.notification_service.notify(
-                    "Sync Users", f"Authentication failed: {str(auth_error)}", "error"
-                )
-                return False
-
-            # Step 1: Pull users and devices from cloud API
-            cloud_data = self._pull_users_from_cloud()
-            if not cloud_data:
-                self.logger.error("Failed to pull users and devices from cloud")
-                self.notification_service.notify(
-                    "Sync Users", "Failed to pull users and devices from cloud", "error"
-                )
-                return False
-
-            # Step 2: Save devices to database
-            devices_saved = self._save_cloud_devices_to_database(cloud_data["devices"])
-            self.logger.info(f"Saved {devices_saved} devices to database")
-
-            # Step 3: Save users to database
-            users_saved = self._save_cloud_users_to_database(cloud_data["users"])
-            self.logger.info(f"Saved {users_saved} users to database")
-
-            # Step 4: Migrate users to devices
-            self.device_manager.migrate_user_to_device()
-
-            self.logger.info("User and device synchronization completed successfully")
+        # Check if we have proper API configuration
+        if not all([self.cloud_api_url, self.username, self.password, self.sync_id]):
+            self.logger.error("API configuration incomplete - missing URL, username, password, or sync_id")
             self.notification_service.notify(
-                "Sync Users", 
-                f"Successfully synced {users_saved} users and {devices_saved} devices from cloud", 
-                "info"
-            )
-            return True
-
-        except Exception as e:
-            self.logger.error(f"User and device synchronization failed: {e}")
-            self.notification_service.notify(
-                "Sync Users", f"User and device synchronization failed: {str(e)}", "error"
+                "Sync Users", "API configuration incomplete. Please check settings.", "error"
             )
             return False
+
+        # Ensure we have valid authentication before proceeding
+        valid_token = self.auth_manager.get_valid_auth_token(
+            self.cloud_api_url, self.username, self.password, self.sync_id
+        )
+        if not valid_token:
+            self.logger.error("Failed to obtain valid authentication token")
+            self.notification_service.notify(
+                "Sync Users", "Authentication failed. Please check your credentials.", "error"
+            )
+            return False
+
+        # Step 1: Pull users and devices from cloud API
+        cloud_data = self._pull_users_from_cloud()
+        if not cloud_data:
+            self.logger.error("Failed to pull users and devices from cloud")
+            self.notification_service.notify(
+                "Sync Users", "Failed to pull users and devices from cloud", "error"
+            )
+            return False
+
+        # Step 2: Save devices to database
+        devices_saved = self._save_cloud_devices_to_database(cloud_data["devices"])
+        self.logger.info(f"Saved {devices_saved} devices to database")
+
+        # Step 3: Save users to database
+        users_saved = self._save_cloud_users_to_database(cloud_data["users"])
+        self.logger.info(f"Saved {users_saved} users to database")
+
+        # Step 4: Migrate users to devices
+        self.device_manager.migrate_user_to_device()
+
+        self.logger.info("User and device synchronization completed successfully")
+        self.notification_service.notify(
+            "Sync Users",
+            f"Successfully synced {users_saved} users and {devices_saved} devices from cloud",
+            "info"
+        )
+        return True
 
     def _pull_users_from_cloud(self) -> Optional[Dict]:
         """
@@ -366,36 +351,29 @@ class APISync:
         saved_count = 0
         
         for device_data in cloud_devices:
-            try:
-                # Check if device already exists
-                existing_device = self.device_repo.get_by_ip(device_data.get('ip'))
-                
-                if not existing_device:
-                    # Create new device
-                    device = Device(
-                        name=device_data.get('name', ''),
-                        ip_address=device_data.get('ip', ''),
-                        port=device_data.get('port', 4370),
-                        password=device_data.get('password', ''),
-                        device_model=device_data.get('model', 'Unknown'),
-                        status='Offline'
-                    )
-                    device.save()
-                    saved_count += 1
-                    self.logger.debug(f"Created new device: {device.name} ({device.ip_address})")
-                else:
-                    # Update existing device
-                    existing_device.name = device_data.get('name', existing_device.name)
-                    existing_device.port = device_data.get('port', existing_device.port)
-                    existing_device.password = device_data.get('password', existing_device.password)
-                    existing_device.device_model = device_data.get('model', existing_device.device_model)
-                    existing_device.save()
-                    saved_count += 1
-                    self.logger.debug(f"Updated existing device: {existing_device.name} ({existing_device.ip_address})")
-                    
-            except Exception as e:
-                self.logger.error(f"Error saving device {device_data.get('ip', 'unknown')}: {e}")
-                continue
+            # Check if device already exists
+            existing_device = self.device_repo.get_by_ip(device_data.get('ip'))
+
+            if not existing_device:
+                # Create new device
+                device = Device(
+                    ip_address=device_data.get('ip', ''),
+                    port=device_data.get('port', 4370),
+                    password=device_data.get('password', ''),
+                    device_model=device_data.get('name', 'Unknown'),
+                    status='Offline'
+                )
+                device.save()
+                saved_count += 1
+                self.logger.debug(f"Created new device: {device.device_model} ({device.ip_address})")
+            else:
+                # Update existing device
+                existing_device.port = device_data.get('port', existing_device.port)
+                existing_device.password = device_data.get('password', existing_device.password)
+                existing_device.device_model = device_data.get('name', existing_device.device_model)
+                existing_device.save()
+                saved_count += 1
+                self.logger.debug(f"Updated existing device: {existing_device.device_model} ({existing_device.ip_address})")
         
         return saved_count
 
@@ -408,44 +386,35 @@ class APISync:
             int: Number of users saved/updated
         """
         saved_count = 0
-        
         for user_data in cloud_users:
-            try:
-                # Check if user already exists
-                existing_user = self.user_repo.get_by_user_id(user_data.get('user_id'))
-                
-                if not existing_user:
-                    # Create new user
-                    user = User(
-                        uid=user_data.get('uid', 0),
-                        name=user_data.get('name', ''),
-                        user_type=user_data.get('user_type', 'STUDENT'),
-                        role=user_data.get('role', 0),
-                        password=user_data.get('password', ''),
-                        group_id=user_data.get('group_id'),
-                        user_id=user_data.get('user_id', ''),
-                        card=user_data.get('card'),
-                        device_code=user_data.get('device_code'),
-                        saved_to_device=False
-                    )
-                    user.save()
-                    saved_count += 1
-                    self.logger.debug(f"Created new user: {user.name} ({user.user_id})")
-                else:
-                    # Update existing user
-                    existing_user.name = user_data.get('name', existing_user.name)
-                    existing_user.user_type = user_data.get('user_type', existing_user.user_type)
-                    existing_user.role = user_data.get('role', existing_user.role)
-                    existing_user.password = user_data.get('password', existing_user.password)
-                    existing_user.group_id = user_data.get('group_id', existing_user.group_id)
-                    existing_user.card = user_data.get('card', existing_user.card)
-                    existing_user.device_code = user_data.get('device_code', existing_user.device_code)
-                    existing_user.save()
-                    saved_count += 1
-                    self.logger.debug(f"Updated existing user: {existing_user.name} ({existing_user.user_id})")
-                    
-            except Exception as e:
-                self.logger.error(f"Error saving user {user_data.get('user_id', 'unknown')}: {e}")
-                continue
-        
+            # Check if user already exists
+            existing_user = self.user_repo.get_by_user_id(user_data.get('id'))
+            if not existing_user:
+                # Create new user
+                user = User(
+                    name=user_data.get('name', ''),
+                    user_type=user_data.get('user_type', 'STUDENT'),
+                    role=user_data.get('role', 0),
+                    password=user_data.get('password', ''),
+                    group_id=user_data.get('group_id'),
+                    user_id=user_data.get('id', ''),
+                    card=user_data.get('card'),
+                    device_code=user_data.get('device_code'),
+                    saved_to_device=False
+                )
+                user.save()
+                saved_count += 1
+                self.logger.debug(f"Created new user: {user.name} ({user.user_id})")
+            else:
+                # Update existing user
+                existing_user.name = user_data.get('name', existing_user.name)
+                existing_user.user_type = user_data.get('user_type', existing_user.user_type)
+                existing_user.role = user_data.get('role', existing_user.role)
+                existing_user.password = user_data.get('password', existing_user.password)
+                existing_user.group_id = user_data.get('group_id', existing_user.group_id)
+                existing_user.card = user_data.get('card', existing_user.card)
+                existing_user.device_code = user_data.get('device_code', existing_user.device_code)
+                existing_user.save()
+                saved_count += 1
+                self.logger.debug(f"Updated existing user: {existing_user.name} ({existing_user.user_id})")
         return saved_count 

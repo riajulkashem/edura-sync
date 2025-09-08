@@ -94,7 +94,7 @@ class Device(BaseModel):
 
 
 class User(BaseModel):
-    uid = IntegerField(primary_key=True)
+    id = BigAutoField(primary_key=True)
     name = CharField(max_length=100)
     user_type = CharField(
         max_length=20,

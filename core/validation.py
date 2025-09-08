@@ -199,19 +199,9 @@ class Validator:
 
         Returns:
             bool: True if valid user ID
-
-        Raises:
-            ValidationError: If user ID is invalid
         """
         if not user_id:
             raise ValidationError("User ID cannot be empty")
-
-        if len(user_id) > 50:
-            raise ValidationError("User ID cannot exceed 50 characters")
-
-        # Allow alphanumeric characters and common symbols
-        if not re.match(r"^[a-zA-Z0-9\-_\.]+$", user_id):
-            raise ValidationError("User ID contains invalid characters")
 
         return True
 
@@ -231,14 +221,6 @@ class Validator:
         """
         if not institute_id:
             raise ValidationError("Institute ID cannot be empty")
-
-        if len(institute_id) > 100:
-            raise ValidationError("Institute ID cannot exceed 100 characters")
-
-        # Allow alphanumeric characters and common symbols
-        if not re.match(r"^[a-zA-Z0-9\-_\.]+$", institute_id):
-            raise ValidationError("Institute ID contains invalid characters")
-
         return True
 
 

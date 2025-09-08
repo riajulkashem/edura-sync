@@ -272,6 +272,7 @@ class DashboardSettings(BaseComponent):
                         "username": values["username"],
                         "password": encrypted_password,
                         "sync_id": values["sync_id"],
+                        "institute_id": institute_info["institute_id"],
                         "in_time_process": values.get("in_time_process"),
                         "out_time_process": values.get("out_time_process"),
                         "updated_at": datetime.now(),
