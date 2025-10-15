@@ -1,6 +1,7 @@
 # services/device_manager.py
 import logging
 import time
+import threading
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 
@@ -118,6 +119,8 @@ class DeviceManager:
         self.user_repo = user_repo
         self.attendance_repo = attendance_repo
         self.logger = logging.getLogger(__name__)
+        self._connection_cache = {}  # Cache for device connections
+        self._cache_lock = threading.Lock()  # Thread lock for cache access
 
     def _get_all_devices(self) -> List[Device]:
         """Get all configured devices."""

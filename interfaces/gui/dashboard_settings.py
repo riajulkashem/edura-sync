@@ -126,8 +126,6 @@ class DashboardSettings(BaseComponent):
             # Create form fields for API settings
             api_fields = [
                 ("cloud_api_url", "Cloud API URL:", settings.cloud_api_url or ""),
-                ("username", "Username:", settings.username or ""),
-                ("password", "Password:", settings.password or ""),
                 ("sync_id", "Sync ID:", settings.sync_id or ""),
             ]
 
@@ -208,79 +206,26 @@ class DashboardSettings(BaseComponent):
                 )
 
             # Validate required fields
-            required_fields = ["cloud_api_url", "username", "password", "sync_id"]
+            required_fields = ["cloud_api_url", "sync_id"]
             if not self.form_manager.validate_form(required_fields):
                 return
 
             # Show saving status
-            self.dashboard._update_connection_status("Saving settings and authenticating...", "info")
-            self.dashboard.show_status_log("Saving settings and authenticating...", "info")
+            self.dashboard._update_connection_status("Saving settings...", "info")
+            self.dashboard.show_status_log("Saving settings...", "info")
 
             # Get form values
             values = self.form_manager.get_values()
-            
-            # Encrypt password
-            encrypted_password = self.dashboard.security.encrypt(values["password"])
-
-            # Authenticate with the API to get token and institute_id
-            try:
-                # Test authentication to get token and institute info
-                if self.dashboard.api_client:
-                    login_success = self.dashboard.api_client.test_connection(
-                        values["cloud_api_url"],
-                        values["username"],
-                        values["password"],
-                        values["sync_id"]
-                    )
-                    
-                    if not login_success:
-                        self.dashboard._update_connection_status("❌ Authentication failed! Settings not saved.", "error")
-                        self.dashboard.show_status_log("Authentication failed - settings not saved", "error")
-                        self.dashboard.notification_service.notify(
-                            "Settings", "Authentication failed. Please check your credentials.", "error"
-                        )
-                        return
-                    
-                    # Get the authentication token and institute info from token manager
-                    token_manager = self.dashboard.api_client.get_auth_manager().token_manager
-                    institute_info = token_manager.get_institute_info()
-                    
-                    # Save settings (auth_token and institute_id already saved by test_connection)
-                    settings_data = {
-                        "cloud_api_url": values["cloud_api_url"],
-                        "username": values["username"],
-                        "password": encrypted_password,
-                        "sync_id": values["sync_id"],
-                        "institute_id": institute_info["institute_id"],
-                        "in_time_process": values.get("in_time_process"),
-                        "out_time_process": values.get("out_time_process"),
-                        "updated_at": datetime.now(),
-                    }
-                    
-                    self.logger.info(f"Saving settings with institute_id: {institute_info.get('institute_id', 'N/A')} (auth_token saved by test_connection)")
-                else:
-                    # Save without authentication data if API client not available
-                    settings_data = {
-                        "cloud_api_url": values["cloud_api_url"],
-                        "username": values["username"],
-                        "password": encrypted_password,
-                        "sync_id": values["sync_id"],
-                        "in_time_process": values.get("in_time_process"),
-                        "out_time_process": values.get("out_time_process"),
-                        "updated_at": datetime.now(),
-                    }
-                    self.logger.warning("API client not available - saving settings without authentication")
-                    
-            except Exception as auth_error:
-                self.logger.error(f"Authentication error during save: {auth_error}")
-                self.dashboard._update_connection_status(f"❌ Authentication failed: {str(auth_error)}", "error")
-                self.dashboard.show_status_log(f"Authentication failed: {str(auth_error)}", "error")
-                self.dashboard.notification_service.notify(
-                    "Settings", f"Authentication failed: {str(auth_error)}", "error"
-                )
-                return
 
             # Save settings to database
+            settings_data = {
+                "cloud_api_url": values["cloud_api_url"],
+                "sync_id": values["sync_id"],
+                "in_time_process": values.get("in_time_process"),
+                "out_time_process": values.get("out_time_process"),
+                "updated_at": datetime.now(),
+            }
+
             self.dashboard.settings_repo.save_settings(**settings_data)
 
             # Update API client settings
@@ -288,14 +233,10 @@ class DashboardSettings(BaseComponent):
                 self.dashboard.api_client.update_settings()
 
             # Show success status
-            success_msg = "✅ Settings saved successfully!"
-            if institute_info.get("institute_id"):
-                success_msg += f" Institute: {institute_info.get('institute_name', institute_info['institute_id'])}"
-                
-            self.dashboard._update_connection_status(success_msg, "success")
-            self.dashboard.show_status_log("Settings saved successfully with authentication", "success")
+            self.dashboard._update_connection_status("✅ Settings saved successfully!", "success")
+            self.dashboard.show_status_log("Settings saved successfully", "success")
             self.dashboard.notification_service.notify(
-                "Settings", "Settings saved successfully with authentication", "info"
+                "Settings", "Settings saved successfully", "info"
             )
 
         except ConfigurationError as e:
@@ -330,11 +271,6 @@ class DashboardSettings(BaseComponent):
             # Populate form fields
             if settings.cloud_api_url:
                 self.form_manager.set_field_value("cloud_api_url", settings.cloud_api_url)
-            if settings.username:
-                self.form_manager.set_field_value("username", settings.username)
-            if settings.password:
-                decrypted_password = self.dashboard.security.decrypt(settings.password)
-                self.form_manager.set_field_value("password", decrypted_password)
             if settings.sync_id:
                 self.form_manager.set_field_value("sync_id", settings.sync_id)
             if settings.in_time_process:
@@ -370,7 +306,7 @@ class DashboardSettings(BaseComponent):
                 raise ConfigurationError("API client not available")
 
             # Validate required fields
-            required_fields = ["cloud_api_url", "username", "password", "sync_id"]
+            required_fields = ["cloud_api_url", "sync_id"]
             if not self.form_manager.validate_form(required_fields):
                 return
 
@@ -381,11 +317,9 @@ class DashboardSettings(BaseComponent):
             self.dashboard._update_connection_status("Testing API connection...", "info")
             self.dashboard.show_status_log("Testing API connection...", "info")
 
-            # Test connection
+            # Test connection using only sync_id
             success = self.dashboard.api_client.test_connection(
                 values["cloud_api_url"],
-                values["username"],
-                values["password"],
                 values["sync_id"]
             )
 

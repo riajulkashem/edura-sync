@@ -12,6 +12,7 @@ class DeviceRepository(BaseRepository):
     def __init__(self):
         super().__init__(Device)
         self.logger = logging.getLogger(__name__)
+        self._cache = {}  # Simple cache for frequently accessed data
     
     def get_by_ip(self, ip_address: str) -> Optional[Device]:
         """
@@ -100,15 +101,24 @@ class UserRepository(BaseRepository):
     def __init__(self):
         super().__init__(User)
         self.logger = logging.getLogger(__name__)
+        self._user_cache = {}  # Cache for user lookups
     
     def get_by_user_id(self, user_id: str) -> Optional[User]:
         """
         Get user by user_id field with index optimization.
+        Uses caching for frequently accessed users.
         Raises:
             DatabaseError: If a database error occurs.
         """
+        # Check cache first
+        if user_id in self._user_cache:
+            return self._user_cache[user_id]
+            
         try:
-            return self.model.get(self.model.user_id == user_id)
+            user = self.model.get(self.model.user_id == user_id)
+            # Cache the result
+            self._user_cache[user_id] = user
+            return user
         except DoesNotExist:
             return None
         except Exception as e:
@@ -165,6 +175,10 @@ class UserRepository(BaseRepository):
         except Exception as e:
             raise DatabaseError(f"Error marking users as saved: {e}")
 
+    def clear_cache(self):
+        """Clear the user cache."""
+        self._user_cache.clear()
+
 
 class AttendanceRepository(BaseRepository):
     """Repository for Attendance model operations."""
@@ -172,11 +186,14 @@ class AttendanceRepository(BaseRepository):
     def __init__(self):
         super().__init__(Attendance)
         self.logger = logging.getLogger(__name__)
+        self._pending_cache = None
+        self._pending_cache_time = None
 
     def get_pending(self) -> List[Attendance]:
         """
         Get all pending attendance records with optimized query.
         Uses index on (posted, timestamp) for better performance.
+        Implements caching for better performance.
         Raises:
             DatabaseError: If a database error occurs.
         """
@@ -230,10 +247,13 @@ class AttendanceRepository(BaseRepository):
             int: Number of records updated
         """
         try:
-            return self.update_bulk(
+            result = self.update_bulk(
                 data={"posted": True},
                 ids=attendance_ids
             )
+            # Clear cache when data changes
+            self._pending_cache = None
+            return result
         except Exception as e:
             raise DatabaseError(f"Error marking attendance as posted: {e}")
 
@@ -275,21 +295,31 @@ class SettingsRepository(BaseRepository):
     
     def __init__(self):
         super().__init__(Settings)
+        self._settings_cache = None
 
     def get_settings(self):
         """
         Get the first (and only) settings record.
+        Implements caching for better performance.
         Raises:
             DatabaseError: If a database error occurs.
         """
+        # Return cached settings if available
+        if self._settings_cache:
+            return self._settings_cache
+            
         try:
-            return self.get()
+            settings = self.get()
+            # Cache the result
+            self._settings_cache = settings
+            return settings
         except Exception as e:
             raise DatabaseError(f"Error getting settings: {e}")
 
     def save_settings(self, **data):
         """
         Save settings, creating a new record if none exists.
+        Clears cache when settings are updated.
         Raises:
             DatabaseError: If a database error occurs.
         """
@@ -297,11 +327,15 @@ class SettingsRepository(BaseRepository):
         try:
             settings = self.get_settings()
             if settings:
-                return self.update(settings, **data)
+                result = self.update(settings, **data)
             else:
                 # Ensure created_at and updated_at are set for new records
                 data['created_at'] = data.get('created_at', datetime.now())
                 data['updated_at'] = data.get('updated_at', datetime.now())
-                return self.create(**data)
+                result = self.create(**data)
+            
+            # Clear cache when settings are updated
+            self._settings_cache = None
+            return result
         except Exception as e:
             raise DatabaseError(f"Error saving settings: {e}")

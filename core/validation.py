@@ -205,24 +205,6 @@ class Validator:
 
         return True
 
-    @staticmethod
-    def validate_institute_id(institute_id: str) -> bool:
-        """
-        Validate institute ID format.
-
-        Args:
-            institute_id: Institute ID string to validate
-
-        Returns:
-            bool: True if valid institute ID
-
-        Raises:
-            ValidationError: If institute ID is invalid
-        """
-        if not institute_id:
-            raise ValidationError("Institute ID cannot be empty")
-        return True
-
 
 class SettingsValidator:
     """Validator for application settings."""
@@ -249,27 +231,6 @@ class SettingsValidator:
                 Validator.validate_url(settings["cloud_api_url"])
             except ValidationError as e:
                 errors.append(f"Cloud API URL: {e.message}")
-
-        # Validate username
-        if "username" in settings and settings["username"]:
-            try:
-                Validator.validate_username(settings["username"])
-            except ValidationError as e:
-                errors.append(f"Username: {e.message}")
-
-        # Validate password
-        if "password" in settings and settings["password"]:
-            try:
-                Validator.validate_password(settings["password"])
-            except ValidationError as e:
-                errors.append(f"Password: {e.message}")
-
-        # Validate institute ID
-        if "institute_id" in settings and settings["institute_id"]:
-            try:
-                Validator.validate_institute_id(settings["institute_id"])
-            except ValidationError as e:
-                errors.append(f"Institute ID: {e.message}")
 
         # Validate time settings
         if "in_time_process" in settings and settings["in_time_process"]:

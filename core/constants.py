@@ -28,10 +28,6 @@ DB_PRAGMAS = {
 
 # API Endpoints for DRF backend
 API_ENDPOINTS = {
-    "DESKTOP_LOGIN": "/api/desktop/login/",  # Desktop login endpoint
-    "TOKEN": "/api/token/",  # JWT token endpoint (legacy)
-    "REFRESH": "/api/token/refresh/",  # JWT refresh endpoint
-    "INFO": "/api/institute/{institute_id}/info/",  # Institute info endpoint
     "ATTENDANCE": "/api/attendance/",  # Attendance data endpoint
     "USERS": "/api/attendance/device-users/",  # Users endpoint
     "DEVICES": "/api/devices/",  # Devices endpoint
@@ -104,10 +100,7 @@ LOG_MESSAGES = {
 # Default settings
 DEFAULT_SETTING = {
     "cloud_api_url": "",
-    "username": "",
-    "password": "",
     "sync_id": "",
-    "institute_id": "",
     "in_time_process": None,
     "out_time_process": None,
     "created_at": None,

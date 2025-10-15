@@ -2,6 +2,7 @@ import os
 from datetime import datetime
 import logging
 from pathlib import Path
+from functools import lru_cache
 
 from peewee import *
 
@@ -75,7 +76,9 @@ class Device(BaseModel):
     password = CharField(max_length=32, default=DEVICE_DEFAULTS["PASSWORD"])
     device_model = CharField(max_length=50, index=True)
     status = CharField(max_length=20, default=DEVICE_DEFAULTS["STATUS"], index=True)
+    last_error = TextField(null=True, help_text="Last error message")
     created_at = DateTimeField(default=datetime.now, index=True)
+    updated_at = DateTimeField(default=datetime.now, index=True)
 
     class Meta:
         table_name = TABLE_NAMES["DEVICES"]
@@ -185,10 +188,14 @@ class Settings(BaseModel):
         try:
             if self.cloud_api_url:
                 Validator.validate_url(self.cloud_api_url)
-            if self.sync_id:
-                Validator.validate_institute_id(self.sync_id)
         except ValidationError as e:
             raise ValidationError(f"Settings validation failed: {e.message}")
+
+
+@lru_cache(maxsize=128)
+def _get_cached_query_result(query_func, *args, **kwargs):
+    """Cache query results for better performance."""
+    return query_func(*args, **kwargs)
 
 
 def create_indexes():
@@ -226,11 +233,34 @@ def create_indexes():
         logger.error(f"Failed to create database indexes: {e}")
 
 
+def migrate_database():
+    """Migrate database schema for existing databases."""
+    try:
+        # Check if devices table exists
+        if not db.table_exists('devices'):
+            return  # Fresh database, no migration needed
+            
+        # Check if last_error column exists
+        cursor = db.execute_sql("PRAGMA table_info(devices)")
+        columns = [row[1] for row in cursor.fetchall()]
+        
+        if 'last_error' not in columns:
+            # Add last_error column
+            db.execute_sql("ALTER TABLE devices ADD COLUMN last_error TEXT NULL")
+            logger.info("Added last_error column to devices table")
+            
+    except Exception as e:
+        logger.error(f"Failed to migrate database: {e}")
+
+
 def initialize_database():
     """Initialize database with tables and indexes."""
     try:
         # Create tables
         db.create_tables([Device, User, Attendance, Settings], safe=True)
+        
+        # Migrate existing databases
+        migrate_database()
 
         # Create indexes
         create_indexes()

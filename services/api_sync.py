@@ -5,8 +5,10 @@ Handles cloud data synchronization and database operations.
 """
 
 import logging
+import requests
 from datetime import datetime
 from typing import Dict, Optional, List
+from functools import lru_cache
 
 from core.constants import API_ENDPOINTS
 from core.exceptions import APICallError, APIAuthenticationError, APINetworkError
@@ -27,6 +29,13 @@ class APISync:
         # Settings
         self.cloud_api_url = ""
         self.sync_id = ""  # Only sync_id is used
+        # Connection pooling
+        self._session = requests.Session()
+        # Set default headers for all requests
+        self._session.headers.update({
+            'User-Agent': 'PrimeSync/1.0',
+            'Content-Type': 'application/json'
+        })
 
     def load_settings(self) -> None:
         """Load settings from repository."""
@@ -44,11 +53,72 @@ class APISync:
             self.cloud_api_url = ""
             self.sync_id = ""
 
+    def _get_headers(self) -> Dict[str, str]:
+        """Get headers for API requests."""
+        return {"HTTP_X_SYNC_ID": self.sync_id}
+
+    @lru_cache(maxsize=32)
+    def _get_cached_endpoint(self, endpoint_key: str) -> str:
+        """Cache API endpoints for better performance."""
+        return API_ENDPOINTS.get(endpoint_key, "")
+
+    def test_connection(self, url: str, sync_id: str) -> bool:
+        """
+        Test connection to the cloud API using sync_id only.
+        
+        Args:
+            url: Base API URL
+            sync_id: Institute sync ID for testing
+            
+        Returns:
+            bool: True if connection successful, False otherwise
+        """
+        try:
+            # Test connection using sync_id only
+            test_url = f"{url.rstrip('/')}{self._get_cached_endpoint('USERS')}"
+            headers = {"HTTP_X_SYNC_ID": sync_id}
+            
+            # Make a simple GET request to test connectivity
+            response = self._session.get(test_url, headers=headers, timeout=10)
+            
+            if response.status_code in [200, 401, 403, 404]:
+                # Connection successful (200 = OK, 401/403 = Authentication required but connection works, 404 = Endpoint not found but server reachable)
+                self.logger.info(f"API connection test successful (Status: {response.status_code})")
+                self.notification_service.notify(
+                    "Connection Test",
+                    f"API connection successful (Status: {response.status_code})",
+                    "info"
+                )
+                return True
+            else:
+                error_msg = f"API returned status code {response.status_code}"
+                if response.text:
+                    try:
+                        error_data = response.json()
+                        error_msg += f": {error_data.get('detail', response.text)}"
+                    except:
+                        error_msg += f": {response.text}"
+                self.logger.error(f"API connection test failed: {error_msg}")
+                self.notification_service.notify(
+                    "Connection Test",
+                    f"API connection failed: {error_msg}",
+                    "error"
+                )
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Unexpected error during connection test: {e}")
+            self.notification_service.notify(
+                "Connection Test",
+                f"Connection test failed: {str(e)}",
+                "error"
+            )
+            return False
+
     def post_to_cloud(self) -> None:
         """Post attendance data to the cloud API using sync_id only."""
         self.logger.info("Starting data post to cloud")
         try:
-            import requests
             attendance_data = self.attendance_repo.cloud_format()
             if not attendance_data:
                 self.logger.warning("No valid attendance data to post")
@@ -58,9 +128,9 @@ class APISync:
                 return
 
             self.logger.info(f"Posting {len(attendance_data)} attendance records to cloud")
-            url = f"{self.cloud_api_url.rstrip('/')}{API_ENDPOINTS['ATTENDANCE']}"
-            headers = {"HTTP_X_SYNC_ID": self.sync_id}
-            response = requests.post(url, json={"attendance": attendance_data}, headers=headers)
+            url = f"{self.cloud_api_url.rstrip('/')}{self._get_cached_endpoint('ATTENDANCE')}"
+            headers = self._get_headers()
+            response = self._session.post(url, json={"attendance": attendance_data}, headers=headers)
 
             if response.status_code == 200:
                 attendance_ids = [record["id"] for record in attendance_data if "id" in record]
@@ -162,10 +232,9 @@ class APISync:
             Optional[Dict]: Dictionary containing users and devices or None if failed.
         """
         try:
-            import requests
-            url = f"{self.cloud_api_url.rstrip('/')}{API_ENDPOINTS['USERS']}"
-            headers = {"HTTP_X_SYNC_ID": self.sync_id}
-            response = requests.get(url, headers=headers)
+            url = f"{self.cloud_api_url.rstrip('/')}{self._get_cached_endpoint('USERS')}"
+            headers = self._get_headers()
+            response = self._session.get(url, headers=headers)
             if response.status_code == 200:
                 data = response.json()
                 users = data.get("users", [])
@@ -260,4 +329,9 @@ class APISync:
                 existing_user.save()
                 saved_count += 1
                 self.logger.debug(f"Updated existing user: {existing_user.name} ({existing_user.user_id})")
-        return saved_count 
+        return saved_count
+
+    def close(self):
+        """Close the session to free up resources."""
+        if self._session:
+            self._session.close()

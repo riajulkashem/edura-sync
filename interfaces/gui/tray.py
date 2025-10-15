@@ -17,7 +17,7 @@ class SystemTray:
         app,
         config,
         device_manager,
-        api_client,
+        api_sync,  # Changed from api_client to api_sync
         dashboard_gui,
         notification_service,
     ):
@@ -27,14 +27,14 @@ class SystemTray:
             app: Reference to the main PrimeSync application.
             config: Application configuration.
             device_manager: Service for device management.
-            api_client: Service for cloud API interactions.
+            api_sync: Service for cloud API interactions.  # Changed from api_client to api_sync
             dashboard_gui: Dashboard GUI component.
             notification_service: Service for sending notifications.
         """
         self.app = app
         self.config = config
         self.device_manager = device_manager
-        self.api_client = api_client
+        self.api_sync = api_sync  # Changed from api_client to api_sync
         self.dashboard_gui = dashboard_gui
         self.notification_service = notification_service
         self.logger = logging.getLogger(__name__)
@@ -93,12 +93,12 @@ class SystemTray:
                 ),
                 pystray.MenuItem(
                     "Sync Data",
-                    self._run_action(self.api_client.sync_data, "Sync Data"),
+                    self._run_action(self.api_sync.sync_data, "Sync Data"),  # Changed from api_client to api_sync
                 ),
                 pystray.MenuItem(
                     "Post Cloud",
                     self._run_action(
-                        self.api_client.post_to_cloud, "Post Data to Cloud"
+                        self.api_sync.post_to_cloud, "Post Data to Cloud"  # Changed from api_client to api_sync
                     ),
                 ),
                 pystray.MenuItem(

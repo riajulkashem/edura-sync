@@ -1,5 +1,4 @@
 from .config import Config
-from .security import SecurityManager
 from .exceptions import (
     PrimeSyncError,
     APICallError,
@@ -7,7 +6,6 @@ from .exceptions import (
     DeviceConnectionError,
     DatabaseError,
     NotificationError,
-    SecurityError,
     SchedulerError,
 )
 
@@ -19,7 +17,5 @@ __all__ = [
     "APICallError",
     "DatabaseError",
     "NotificationError",
-    "SecurityError",
     "Config",
-    "SecurityManager",
 ]

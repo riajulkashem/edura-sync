@@ -343,4 +343,4 @@ class BaseRepository:
                 return self.create(**data), True
         except Exception as e:
             self.logger.error(f"Error in update_or_create with filters {filters}: {e}")
-            raise DatabaseError(f"Failed to update or create record: {str(e)}") 
+            raise DatabaseError(f"Failed to update or create record: {str(e)}")

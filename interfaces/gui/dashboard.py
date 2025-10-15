@@ -32,7 +32,6 @@ from interfaces.database.repository import (
     SettingsRepository,
 )
 from services.notification import NotificationService
-from core.security import SecurityManager
 
 
 class DashboardGUI:
@@ -46,8 +45,7 @@ class DashboardGUI:
         user_repo,
         notification_service,
         settings_repo=None,
-        api_client=None,
-        security=None,
+        api_sync=None,  # Changed from api_client to api_sync
     ):
         """Initialize the dashboard GUI with required components."""
         self.logger = logging.getLogger(__name__)
@@ -57,8 +55,7 @@ class DashboardGUI:
         self.user_repo = user_repo
         self.notification_service = notification_service
         self.settings_repo = settings_repo
-        self.api_client = api_client
-        self.security = security
+        self.api_sync = api_sync  # Changed from api_client to api_sync
         self.device_manager = None
 
         # UI components
@@ -119,6 +116,11 @@ class DashboardGUI:
                 self.dashboard_win, "Quit", self.dashboard_win.withdraw
             )
             quit_btn.pack(pady=(0, 10))
+
+            # Make sure the window is visible
+            self.dashboard_win.deiconify()
+            self.dashboard_win.lift()
+            self.dashboard_win.focus_force()
 
         except Exception as e:
             self.logger.error(f"Error displaying dashboard: {e}")
@@ -232,11 +234,11 @@ For support and updates, visit our website.
 
     def _sync_users(self):
         """Sync users with cloud."""
-        self._perform_action(self.api_client.sync_users, "Sync Users")
+        self._perform_action(self.api_sync.sync_users, "Sync Users")  # Changed from api_client to api_sync
 
     def _sync_to_cloud(self):
         """Sync data to cloud."""
-        self._perform_action(self.api_client.post_to_cloud, "Sync to Cloud")
+        self._perform_action(self.api_sync.post_to_cloud, "Sync to Cloud")  # Changed from api_client to api_sync
 
     def _refresh_dashboard(self):
         """Refresh dashboard data."""
@@ -269,7 +271,7 @@ For support and updates, visit our website.
                     success_msg = f"{action_name} completed successfully"
                     self.show_status_log(success_msg, "success")
                     # Only send success notification if action doesn't handle its own notifications
-                    if not hasattr(action_func, '__self__') or 'api_client' not in str(action_func.__self__):
+                    if not hasattr(action_func, '__self__') or 'api_sync' not in str(action_func.__self__):
                         self.notification_service.notify(
                             "Success", success_msg, "info"
                         )

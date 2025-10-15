@@ -28,24 +28,23 @@ from interfaces.gui.ui_utils import (
 class EventHandlers:
     """Event handlers for GUI components."""
 
-    def __init__(self, notification_service, settings_repo, api_client, security):
+    def __init__(self, notification_service, settings_repo, api_client):
         """Initialize event handlers with dependencies."""
         self.logger = logging.getLogger(__name__)
         self.notification_service = notification_service
         self.settings_repo = settings_repo
         self.api_client = api_client
-        self.security = security
 
-    def test_api_connection(self, url, username, password, institute_id):
-        """Test API connection with JWT authentication."""
+    def test_api_connection(self, url, sync_id):
+        """Test API connection with sync_id authentication."""
         try:
             # Validate inputs
-            if not all([url, username, password, institute_id]):
-                raise ValidationError("Please fill in all API fields")
+            if not all([url, sync_id]):
+                raise ValidationError("Please fill in API URL and Sync ID fields")
 
             # Use the API client's test_connection method
             if self.api_client:
-                return self.api_client.test_connection(url, username, password, institute_id)
+                return self.api_client.test_connection(url, sync_id)
             else:
                 raise ConfigurationError("API client not available")
 
@@ -65,16 +64,10 @@ class EventHandlers:
                 )
 
             # Validate required fields
-            required_fields = ["cloud_api_url", "username", "password", "institute_id"]
+            required_fields = ["cloud_api_url", "sync_id"]
             for field in required_fields:
                 if not settings_data.get(field):
                     raise ValidationError(f"Missing required field: {field}")
-
-            # Encrypt password
-            if settings_data.get("password"):
-                settings_data["password"] = self.security.encrypt(
-                    settings_data["password"]
-                )
 
             # Add timestamp
             settings_data["updated_at"] = datetime.now()

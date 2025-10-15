@@ -6,7 +6,6 @@ from pathlib import Path
 
 from core.config import Config
 from core.constants import LOG_MESSAGES, DEFAULT_SETTING
-from core.security import SecurityManager
 from core.exceptions import DatabaseError, ConfigurationError, ValidationError
 from interfaces.database.models import DatabaseFactory, db, initialize_database
 from interfaces.database.repository import (
@@ -17,7 +16,7 @@ from interfaces.database.repository import (
 )
 from interfaces.gui.dashboard import DashboardGUI
 from interfaces.gui.tray import SystemTray
-from services.api_client import APIClient
+from services.api_sync import APISync
 from services.device_manager import DeviceManager
 from services.notification import NotificationService
 
@@ -51,7 +50,6 @@ class PrimeSync:
             self.settings_repo = SettingsRepository()
 
             # Initialize services
-            self.security = SecurityManager()
             self.notification_service = NotificationService(self.config)
             self.device_manager = DeviceManager(
                 self.notification_service,
@@ -59,8 +57,7 @@ class PrimeSync:
                 self.user_repo,
                 self.attendance_repo,
             )
-            self.api_client = APIClient(
-                self.security,
+            self.api_sync = APISync(
                 self.notification_service,
                 self.settings_repo,
                 self.attendance_repo,
@@ -79,14 +76,12 @@ class PrimeSync:
                 self.user_repo,
                 self.notification_service,
                 self.settings_repo,
-                self.api_client,
-                self.security,
+                self.api_sync,
             )
 
             # Update the dashboard with all required dependencies
             self.dashboard_gui.settings_repo = self.settings_repo
-            self.dashboard_gui.api_client = self.api_client
-            self.dashboard_gui.security = self.security
+            self.dashboard_gui.api_client = self.api_sync
             self.dashboard_gui.set_device_manager(self.device_manager)
 
             # Initialize system tray
@@ -94,7 +89,7 @@ class PrimeSync:
                 self,
                 self.config,
                 self.device_manager,
-                self.api_client,
+                self.api_sync,
                 self.dashboard_gui,
                 self.notification_service,
             )
@@ -158,8 +153,8 @@ class PrimeSync:
                         "error",
                     )
 
-            # Update API client with settings
-            self.api_client.update_settings()
+            # Update API sync with settings
+            self.api_sync.load_settings()
 
             # Show dashboard
             self.dashboard_gui.show_dashboard()
@@ -220,22 +215,40 @@ class PrimeSync:
                     "warning",
                 )
 
-            # Start tray icon - change to non-daemon for more reliable execution
-            tray_thread = threading.Thread(target=self.tray.run, daemon=False)
-            tray_thread.start()
-            self.logger.info(LOG_MESSAGES["TRAY_STARTED"])
+            # Show dashboard window
+            self.dashboard_gui.show_dashboard()
+            
+            # Start tray icon only on Windows (avoid issues on macOS)
+            import platform
+            tray_thread = None
+            if platform.system() == "Windows":
+                try:
+                    tray_thread = threading.Thread(target=self._safe_tray_run, daemon=False)
+                    tray_thread.start()
+                    self.logger.info(LOG_MESSAGES["TRAY_STARTED"])
+                except Exception as e:
+                    self.logger.warning(f"Failed to start system tray: {e}")
+            else:
+                self.logger.info("System tray disabled on non-Windows platforms")
 
-            # Start GUI
+            # Start GUI - this should show the dashboard window
             self.root.mainloop()
             self.logger.info("Application main loop started")
 
-            # Wait for tray thread to complete if mainloop exits
-            if tray_thread.is_alive():
+            # Wait for tray thread to complete if it was started and mainloop exits
+            if tray_thread and tray_thread.is_alive():
                 tray_thread.join()
 
         except Exception as e:
             self.logger.error(f"Error running application: {e}")
             self.exit_app()
+
+    def _safe_tray_run(self):
+        """Safely run the system tray with error handling."""
+        try:
+            self.tray.run()
+        except Exception as e:
+            self.logger.warning(f"System tray error (continuing without tray): {e}")
 
     def exit_app(self) -> None:
         """Cleanly exit the application with improved error handling for threading issues."""
@@ -246,6 +259,10 @@ class PrimeSync:
         self.logger.info("Initiating application shutdown")
 
         try:
+            # Close API session to free up resources
+            if hasattr(self, 'api_sync'):
+                self.api_sync.close()
+            
             # Stop tray first to prevent further callbacks
             self.tray.stop()
             
