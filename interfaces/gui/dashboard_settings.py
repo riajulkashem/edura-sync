@@ -48,25 +48,6 @@ class DashboardSettings(BaseComponent):
             default="",
             kwargs={"width": 40}
         )
-        
-        self.form_manager.add_field(
-            name="username",
-            label="Username:",
-            field_type="entry",
-            required=True,
-            default="",
-            kwargs={"width": 40}
-        )
-        
-        self.form_manager.add_field(
-            name="password",
-            label="Password:",
-            field_type="entry",
-            required=True,
-            default="",
-            kwargs={"width": 40, "show": "*"}
-        )
-        
         self.form_manager.add_field(
             name="sync_id",
             label="Sync ID:",
@@ -75,7 +56,6 @@ class DashboardSettings(BaseComponent):
             default="",
             kwargs={"width": 40}
         )
-        
         # Time Settings
         self.form_manager.add_field(
             name="in_time_process",
@@ -85,7 +65,6 @@ class DashboardSettings(BaseComponent):
             default="",
             kwargs={"width": 40}
         )
-        
         self.form_manager.add_field(
             name="out_time_process",
             label="Out Time Process:",

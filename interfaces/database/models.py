@@ -168,11 +168,7 @@ class Attendance(BaseModel):
 
 class Settings(BaseModel):
     cloud_api_url = CharField(default="", index=True)
-    username = CharField(default="")
-    password = CharField(default="", help_text="Encrypted password")
-    sync_id = CharField(default="", index=True, help_text="Institute sync ID for desktop login")
-    institute_id = CharField(default="", index=True, help_text="Institute ID from login response")
-    auth_token = CharField(default="", null=True)
+    sync_id = CharField(default="", index=True, help_text="Sync ID for all API requests")
     in_time_process = TimeField(null=True)
     out_time_process = TimeField(null=True)
     last_sync = DateTimeField(null=True, index=True)
@@ -189,14 +185,8 @@ class Settings(BaseModel):
         try:
             if self.cloud_api_url:
                 Validator.validate_url(self.cloud_api_url)
-            if self.username:
-                Validator.validate_username(self.username)
-            if self.password:
-                Validator.validate_password(self.password)
             if self.sync_id:
-                Validator.validate_institute_id(self.sync_id)  # Use same validation as institute_id
-            if self.institute_id:
-                Validator.validate_institute_id(self.institute_id)
+                Validator.validate_institute_id(self.sync_id)
         except ValidationError as e:
             raise ValidationError(f"Settings validation failed: {e.message}")
 
