@@ -2,9 +2,9 @@ name: Build Windows Installer
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, headless ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, headless ]
   workflow_dispatch:
 
 jobs:
