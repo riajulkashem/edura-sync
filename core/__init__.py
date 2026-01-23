@@ -1,21 +1,36 @@
-from .config import Config
+"""
+Core module for the EduraSync application.
+Contains shared utilities, constants, exceptions, and configuration.
+"""
+
 from .exceptions import (
-    PrimeSyncError,
-    APICallError,
-    ConfigurationError,
-    DeviceConnectionError,
+    EduraSyncError,
     DatabaseError,
+    ConfigurationError,
+    ValidationError,
+    GUIError,
+    DeviceError,
+    ConnectionError,
+    APIError,
+    AuthenticationError,
+    APICallError,
     NotificationError,
     SchedulerError,
+    handle_exceptions,
 )
 
 __all__ = [
-    "PrimeSyncError",
-    "SchedulerError",
-    "DeviceConnectionError",
-    "ConfigurationError",
-    "APICallError",
+    "EduraSyncError",
     "DatabaseError",
+    "ConfigurationError",
+    "ValidationError",
+    "GUIError",
+    "DeviceError",
+    "ConnectionError",
+    "APIError",
+    "AuthenticationError",
+    "APICallError",
     "NotificationError",
-    "Config",
+    "SchedulerError",
+    "handle_exceptions",
 ]

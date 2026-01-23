@@ -9,7 +9,7 @@ on:
 
 jobs:
   build-windows:
-    runs-on: windows-2019
+    runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -43,11 +43,11 @@ jobs:
 
       - name: Build with PyInstaller
         run: |
-          pyinstaller --clean --noconfirm primesync.spec
+          pyinstaller --clean --noconfirm edurasync.spec
 
       - name: Verify PyInstaller output
         run: |
-          dir dist\PrimeSyncTrayApp || (echo "PyInstaller output missing" && exit 1)
+          dir dist\EduraSync || (echo "PyInstaller output missing" && exit 1)
 
       - name: Create credits file
         run: |
@@ -59,11 +59,11 @@ jobs:
         run: |
           echo "Creating Inno Setup script..."
           $innoScript = @"
-          #define MyAppName "PrimeSync"
+          #define MyAppName "EduraSync"
           #define MyAppVersion "${{ env.APP_VERSION }}"
           #define MyAppPublisher "Riajul Kashem"
           #define MyAppURL "https://github.com/riajulkashem/prime-sync"
-          #define MyAppExeName "PrimeSyncTrayApp.exe"
+          #define MyAppExeName "EduraSync.exe"
           
           [Setup]
           AppId={{EA3FCF1E-0EB9-4DEA-AB7A-ADE3D2B7AAF8}
@@ -94,7 +94,7 @@ jobs:
           Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked; OnlyBelowVersion: 6.1; Check: not IsAdminInstallMode
           
           [Files]
-          Source: "dist\PrimeSyncTrayApp\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+          Source: "dist\EduraSync\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
           Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
           Source: "CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
           
@@ -112,7 +112,7 @@ jobs:
           Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
           
           [Registry]
-          Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "PrimeSync"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue
+          Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "EduraSync"; ValueData: """{app}\{#MyAppExeName}"" --headless"; Flags: uninsdeletevalue
           "@
           
           $innoScript | Out-File -FilePath ./installer.iss -Encoding utf8
@@ -120,7 +120,7 @@ jobs:
           # Debug: List files
           dir .
           dir assets
-          dir dist\PrimeSyncTrayApp
+          dir dist\EduraSync
           
           # Create LICENSE file
           if (-not (Test-Path LICENSE)) {
@@ -148,7 +148,7 @@ jobs:
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PrimeSync-Windows-Installer
+          name: EduraSync-Windows-Installer
           path: installer/PrimeSync-Setup-${{ env.APP_VERSION }}.exe
 
       - name: Create Release
@@ -156,7 +156,7 @@ jobs:
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
-          name: PrimeSync v${{ env.APP_VERSION }}
+          name: EduraSync v${{ env.APP_VERSION }}
           tag_name: v${{ env.APP_VERSION }}
           draft: false
           prerelease: false

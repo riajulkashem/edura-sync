@@ -40,8 +40,8 @@ class Config(Singleton):
         self._set_icon_path()
 
         # Define database and log file paths
-        self.LOG_FILE: Path = self.DATA_DIR / "logs" / "primesync.log"
-        self.DB_NAME: str = "primesync.db"
+        self.LOG_FILE: Path = self.DATA_DIR / "logs" / "edurasync.log"
+        self.DB_NAME: str = "edurasync.db"
         self.DB_PATH: Path = self.DATA_DIR / self.DB_NAME
 
         # Validate icon path
@@ -53,7 +53,7 @@ class Config(Singleton):
 
     def _setup_logging(self) -> None:
         """Configure logging to file or stdout based on execution context."""
-        log_file = None if getattr(sys, "frozen", False) else "logs/primesync.log"
+        log_file = None if getattr(sys, "frozen", False) else "logs/edurasync.log"
         logging.basicConfig(
             filename=log_file,
             level=logging.INFO,
@@ -65,19 +65,57 @@ class Config(Singleton):
         """Set BASE_DIR and INSTALL_DIR based on whether running as bundled or source."""
         if getattr(sys, "frozen", False):
             self.BASE_DIR = Path(sys._MEIPASS)  # PyInstaller temp directory
-            self.INSTALL_DIR = Path("C:/Program Files/PrimeSyncTrayApp")
+            self.INSTALL_DIR = Path("C:/Program Files/EduraSync")
         else:
             self.BASE_DIR = Path(__file__).parent.parent  # Project root
             self.INSTALL_DIR = self.BASE_DIR
 
     def _set_data_paths(self) -> None:
-        """Set DATA_DIR, preferring INSTALL_DIR with fallback to APPDATA or home."""
-        self.DATA_DIR = self.INSTALL_DIR / "data"
-        if not os.access(str(self.DATA_DIR), os.W_OK):
-            self.DATA_DIR = (
-                Path(os.getenv("APPDATA", Path.home() / "AppData" / "Roaming"))
-                / "PrimeSync"
-            )
+        """Set DATA_DIR, preferring INSTALL_DIR with fallback to a platform-appropriate user data dir.
+
+        Instead of using os.access on a path that may not exist, try to create the
+        directory under INSTALL_DIR; if that fails, fall back to a writable per-platform
+        user data directory (Windows APPDATA, macOS ~/Library/Application Support,
+        otherwise ~/.local/share).
+        """
+        preferred = self.INSTALL_DIR / "data"
+        try:
+            preferred.mkdir(parents=True, exist_ok=True)
+            # Try to write a tiny temp file to ensure writability
+            test_file = preferred / ".writetest"
+            with open(test_file, "w") as f:
+                f.write("ok")
+            test_file.unlink()
+            self.DATA_DIR = preferred
+            return
+        except Exception:
+            # Fall through to platform-specific user data dir
+            pass
+
+        if sys.platform.startswith("win"):
+            appdata = os.getenv("APPDATA")
+            if appdata:
+                self.DATA_DIR = Path(appdata) / "EduraSync"
+            else:
+                self.DATA_DIR = Path.home() / "AppData" / "Roaming" / "EduraSync"
+        elif sys.platform == "darwin":
+            # macOS: use Library/Application Support
+            self.DATA_DIR = Path.home() / "Library" / "Application Support" / "EduraSync"
+        else:
+            # Linux / other: use XDG or ~/.local/share
+            xdg = os.getenv("XDG_DATA_HOME")
+            if xdg:
+                self.DATA_DIR = Path(xdg) / "EduraSync"
+            else:
+                self.DATA_DIR = Path.home() / ".local" / "share" / "EduraSync"
+
+        # Ensure the fallback dir exists
+        try:
+            self.DATA_DIR.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            # As a last resort, use current working directory /data
+            self.DATA_DIR = Path.cwd() / "data"
+            self.DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     def _set_icon_path(self) -> None:
         """Set ICON_PATH, preferring INSTALL_DIR with fallback to BASE_DIR."""

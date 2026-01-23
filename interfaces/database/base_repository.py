@@ -11,6 +11,7 @@ from peewee import DoesNotExist, IntegrityError
 
 from interfaces.database.models import db
 from core.exceptions import DatabaseError
+from core.utils import handle_db_errors, safe_db_operation
 
 
 class BaseRepository:
@@ -24,6 +25,7 @@ class BaseRepository:
         self.model = model
         self.logger = logging.getLogger(f"{__name__}.{model.__name__}")
 
+    @handle_db_errors("getting record")
     def get(self, **filters) -> Optional[Any]:
         """
         Get a single record by filters.
@@ -38,10 +40,8 @@ class BaseRepository:
             return self.model.get(**filters)
         except DoesNotExist:
             return None
-        except Exception as e:
-            self.logger.error(f"Error getting record with filters {filters}: {e}")
-            raise DatabaseError(f"Failed to get record: {str(e)}")
 
+    @handle_db_errors("getting all records")
     def get_all(self) -> List[Any]:
         """
         Get all records.
@@ -49,12 +49,9 @@ class BaseRepository:
         Returns:
             List of model instances
         """
-        try:
-            return list(self.model.select())
-        except Exception as e:
-            self.logger.error(f"Error getting all records: {e}")
-            raise DatabaseError(f"Failed to get all records: {str(e)}")
+        return list(self.model.select())
 
+    @handle_db_errors("filtering records")
     def filter(self, **filters) -> List[Any]:
         """
         Filter records by field-value pairs.
@@ -65,17 +62,14 @@ class BaseRepository:
         Returns:
             List of matching model instances
         """
-        try:
-            query = self.model.select()
-            for field, value in filters.items():
-                if not hasattr(self.model, field):
-                    raise ValueError(f"Field '{field}' does not exist on model {self.model.__name__}")
-                query = query.where(getattr(self.model, field) == value)
-            return list(query)
-        except Exception as e:
-            self.logger.error(f"Error filtering records with {filters}: {e}")
-            raise DatabaseError(f"Failed to filter records: {str(e)}")
+        query = self.model.select()
+        for field, value in filters.items():
+            if not hasattr(self.model, field):
+                raise ValueError(f"Field '{field}' does not exist on model {self.model.__name__}")
+            query = query.where(getattr(self.model, field) == value)
+        return list(query)
 
+    @handle_db_errors("creating record")
     def create(self, **data) -> Any:
         """
         Create a new record.
@@ -86,22 +80,16 @@ class BaseRepository:
         Returns:
             Created model instance
         """
-        try:
-            # Add timestamps if they exist in the model
-            if hasattr(self.model, 'created_at') and 'created_at' not in data:
-                data['created_at'] = datetime.now()
-            if hasattr(self.model, 'updated_at') and 'updated_at' not in data:
-                data['updated_at'] = datetime.now()
-                
-            with db.atomic():
-                return self.model.create(**data)
-        except IntegrityError as e:
-            self.logger.error(f"Integrity error creating record: {e}")
-            raise DatabaseError(f"Data integrity error: {str(e)}")
-        except Exception as e:
-            self.logger.error(f"Error creating record: {e}")
-            raise DatabaseError(f"Failed to create record: {str(e)}")
+        # Add timestamps if they exist in the model
+        if hasattr(self.model, 'created_at') and 'created_at' not in data:
+            data['created_at'] = datetime.now()
+        if hasattr(self.model, 'updated_at') and 'updated_at' not in data:
+            data['updated_at'] = datetime.now()
+            
+        with db.atomic():
+            return self.model.create(**data)
 
+    @handle_db_errors("creating bulk records")
     def create_bulk(self, data_list: List[Dict]) -> int:
         """
         Create multiple records in bulk.
@@ -112,20 +100,17 @@ class BaseRepository:
         Returns:
             Number of records created
         """
-        try:
-            # Add timestamps to all records
-            for data in data_list:
-                if hasattr(self.model, 'created_at') and 'created_at' not in data:
-                    data['created_at'] = datetime.now()
-                if hasattr(self.model, 'updated_at') and 'updated_at' not in data:
-                    data['updated_at'] = datetime.now()
-                    
-            with db.atomic():
-                return self.model.insert_many(data_list).execute()
-        except Exception as e:
-            self.logger.error(f"Error creating bulk records: {e}")
-            raise DatabaseError(f"Failed to create bulk records: {str(e)}")
+        # Add timestamps to all records
+        for data in data_list:
+            if hasattr(self.model, 'created_at') and 'created_at' not in data:
+                data['created_at'] = datetime.now()
+            if hasattr(self.model, 'updated_at') and 'updated_at' not in data:
+                data['updated_at'] = datetime.now()
+                
+        with db.atomic():
+            return self.model.insert_many(data_list).execute()
 
+    @handle_db_errors("updating record")
     def update(self, obj: Any, **data) -> Any:
         """
         Update an existing record.
@@ -137,23 +122,17 @@ class BaseRepository:
         Returns:
             Updated model instance
         """
-        try:
-            # Add updated_at timestamp if it exists in the model
-            if hasattr(self.model, 'updated_at') and 'updated_at' not in data:
-                data['updated_at'] = datetime.now()
-                
-            for field, value in data.items():
-                setattr(obj, field, value)
-            with db.atomic():
-                obj.save()
-            return obj
-        except IntegrityError as e:
-            self.logger.error(f"Integrity error updating record: {e}")
-            raise DatabaseError(f"Data integrity error: {str(e)}")
-        except Exception as e:
-            self.logger.error(f"Error updating record: {e}")
-            raise DatabaseError(f"Failed to update record: {str(e)}")
+        # Add updated_at timestamp if it exists in the model
+        if hasattr(self.model, 'updated_at') and 'updated_at' not in data:
+            data['updated_at'] = datetime.now()
+            
+        for field, value in data.items():
+            setattr(obj, field, value)
+        with db.atomic():
+            obj.save()
+        return obj
 
+    @handle_db_errors("updating bulk records")
     def update_bulk(self, data: Dict, ids: Optional[List[int]] = None, **filters) -> int:
         """
         Update multiple records.
@@ -166,29 +145,26 @@ class BaseRepository:
         Returns:
             Number of records updated
         """
-        try:
-            if not ids and not filters:
-                raise ValueError("Either 'ids' or 'filters' must be provided for bulk update")
+        if not ids and not filters:
+            raise ValueError("Either 'ids' or 'filters' must be provided for bulk update")
 
-            # Add updated_at timestamp if it exists in the model
-            if hasattr(self.model, 'updated_at') and 'updated_at' not in data:
-                data['updated_at'] = datetime.now()
+        # Add updated_at timestamp if it exists in the model
+        if hasattr(self.model, 'updated_at') and 'updated_at' not in data:
+            data['updated_at'] = datetime.now()
 
-            query = self.model.update(**data)
-            if ids:
-                query = query.where(self.model.id.in_(ids))
-            elif filters:
-                for field, value in filters.items():
-                    if not hasattr(self.model, field):
-                        raise ValueError(f"Field '{field}' does not exist on model {self.model.__name__}")
-                    query = query.where(getattr(self.model, field) == value)
+        query = self.model.update(**data)
+        if ids:
+            query = query.where(self.model.id.in_(ids))
+        elif filters:
+            for field, value in filters.items():
+                if not hasattr(self.model, field):
+                    raise ValueError(f"Field '{field}' does not exist on model {self.model.__name__}")
+                query = query.where(getattr(self.model, field) == value)
 
-            with db.atomic():
-                return query.execute()
-        except Exception as e:
-            self.logger.error(f"Error updating bulk records: {e}")
-            raise DatabaseError(f"Failed to update bulk records: {str(e)}")
+        with db.atomic():
+            return query.execute()
 
+    @handle_db_errors("deleting record")
     def delete(self, obj: Any) -> bool:
         """
         Delete a record.
@@ -199,13 +175,10 @@ class BaseRepository:
         Returns:
             True if deleted successfully
         """
-        try:
-            with db.atomic():
-                return obj.delete_instance()
-        except Exception as e:
-            self.logger.error(f"Error deleting record: {e}")
-            raise DatabaseError(f"Failed to delete record: {str(e)}")
+        with db.atomic():
+            return obj.delete_instance() == 1
 
+    @handle_db_errors("deleting bulk records")
     def delete_bulk(self, **filters) -> int:
         """
         Delete multiple records.
@@ -216,22 +189,19 @@ class BaseRepository:
         Returns:
             Number of records deleted
         """
-        try:
-            if not filters:
-                raise ValueError("Filters must be provided for bulk delete")
+        if not filters:
+            raise ValueError("Filters must be provided for bulk delete")
 
-            query = self.model.delete()
-            for field, value in filters.items():
-                if not hasattr(self.model, field):
-                    raise ValueError(f"Field '{field}' does not exist on model {self.model.__name__}")
-                query = query.where(getattr(self.model, field) == value)
+        query = self.model.delete()
+        for field, value in filters.items():
+            if not hasattr(self.model, field):
+                raise ValueError(f"Field '{field}' does not exist on model {self.model.__name__}")
+            query = query.where(getattr(self.model, field) == value)
 
-            with db.atomic():
-                return query.execute()
-        except Exception as e:
-            self.logger.error(f"Error deleting bulk records: {e}")
-            raise DatabaseError(f"Failed to delete bulk records: {str(e)}")
+        with db.atomic():
+            return query.execute()
 
+    @handle_db_errors("counting records")
     def count(self) -> int:
         """
         Count total records.
@@ -239,12 +209,9 @@ class BaseRepository:
         Returns:
             Number of records
         """
-        try:
-            return self.model.select().count()
-        except Exception as e:
-            self.logger.error(f"Error counting records: {e}")
-            raise DatabaseError(f"Failed to count records: {str(e)}")
+        return self.model.select().count()
 
+    @handle_db_errors("checking record existence")
     def exists(self, **filters) -> bool:
         """
         Check if any record exists with given filters.
@@ -255,11 +222,7 @@ class BaseRepository:
         Returns:
             True if record exists, False otherwise
         """
-        try:
-            return self.model.select().where(**filters).exists()
-        except Exception as e:
-            self.logger.error(f"Error checking existence with filters {filters}: {e}")
-            raise DatabaseError(f"Failed to check existence: {str(e)}")
+        return self.model.select().where(**filters).exists()
 
     def to_dict(self, instance: Any) -> Dict:
         """
@@ -280,6 +243,7 @@ class BaseRepository:
             self.logger.error(f"Error converting instance to dict: {e}")
             raise DatabaseError(f"Failed to convert to dictionary: {str(e)}")
 
+    @handle_db_errors("getting record as dictionary")
     def get_as_dict(self, **filters) -> Optional[Dict]:
         """
         Get a single record as a dictionary.
@@ -290,13 +254,10 @@ class BaseRepository:
         Returns:
             Dictionary representation or None if not found
         """
-        try:
-            instance = self.get(**filters)
-            return self.to_dict(instance) if instance else None
-        except Exception as e:
-            self.logger.error(f"Error getting record as dict with filters {filters}: {e}")
-            raise DatabaseError(f"Failed to get record as dictionary: {str(e)}")
+        instance = self.get(**filters)
+        return self.to_dict(instance) if instance else None
 
+    @handle_db_errors("getting or creating record")
     def get_or_create(self, defaults: Optional[Dict] = None, **filters) -> tuple:
         """
         Get an existing record or create a new one.
@@ -308,19 +269,16 @@ class BaseRepository:
         Returns:
             Tuple of (instance, created) where created is a boolean
         """
-        try:
-            defaults = defaults or {}
-            instance = self.get(**filters)
-            if instance:
-                return instance, False
-            else:
-                # Merge filters with defaults
-                data = {**filters, **defaults}
-                return self.create(**data), True
-        except Exception as e:
-            self.logger.error(f"Error in get_or_create with filters {filters}: {e}")
-            raise DatabaseError(f"Failed to get or create record: {str(e)}")
+        defaults = defaults or {}
+        instance = self.get(**filters)
+        if instance:
+            return instance, False
+        else:
+            # Merge filters with defaults
+            data = {**filters, **defaults}
+            return self.create(**data), True
 
+    @handle_db_errors("updating or creating record")
     def update_or_create(self, defaults: Optional[Dict] = None, **filters) -> tuple:
         """
         Update an existing record or create a new one.
@@ -332,15 +290,11 @@ class BaseRepository:
         Returns:
             Tuple of (instance, created) where created is a boolean
         """
-        try:
-            defaults = defaults or {}
-            instance = self.get(**filters)
-            if instance:
-                return self.update(instance, **defaults), False
-            else:
-                # Merge filters with defaults
-                data = {**filters, **defaults}
-                return self.create(**data), True
-        except Exception as e:
-            self.logger.error(f"Error in update_or_create with filters {filters}: {e}")
-            raise DatabaseError(f"Failed to update or create record: {str(e)}")
+        defaults = defaults or {}
+        instance = self.get(**filters)
+        if instance:
+            return self.update(instance, **defaults), False
+        else:
+            # Merge filters with defaults
+            data = {**filters, **defaults}
+            return self.create(**data), True

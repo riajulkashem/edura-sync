@@ -1,8 +1,7 @@
-from .device_manager import DeviceConnectionFactory, DeviceManager
+from .device_manager import DeviceManager
 from .notification import NotificationService
 
 __all__ = [
-    "DeviceConnectionFactory",
     "DeviceManager",
     "NotificationService",
 ]

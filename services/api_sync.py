@@ -1,17 +1,10 @@
 # services/api_sync.py
-"""
-API data synchronization operations.
-Handles cloud data synchronization and database operations.
-"""
-
 import logging
 import requests
-from datetime import datetime
 from typing import Dict, Optional, List
-from functools import lru_cache
 
 from core.constants import API_ENDPOINTS
-from core.exceptions import APICallError, APIAuthenticationError, APINetworkError
+from core.exceptions import APICallError
 from interfaces.database.models import Device, User
 
 
@@ -33,34 +26,78 @@ class APISync:
         self._session = requests.Session()
         # Set default headers for all requests
         self._session.headers.update({
-            'User-Agent': 'PrimeSync/1.0',
+            'User-Agent': 'EduraSync/1.0',
             'Content-Type': 'application/json'
         })
 
     def load_settings(self) -> None:
         """Load settings from repository."""
-        try:
-            settings = self.settings_repo.get_settings()
-            if settings:
-                self.cloud_api_url = settings.cloud_api_url or ""
-                self.sync_id = settings.sync_id or ""
-            else:
-                self.cloud_api_url = ""
-                self.sync_id = ""
-                self.logger.warning("No settings found - using empty values")
-        except Exception as e:
-            self.logger.error(f"Failed to load settings: {e}")
+        settings = self.settings_repo.get_settings()
+        if settings:
+            self.cloud_api_url = settings.cloud_api_url or ""
+            self.sync_id = settings.sync_id or ""
+        else:
             self.cloud_api_url = ""
             self.sync_id = ""
+            self.logger.warning("No settings found - using empty values")
 
     def _get_headers(self) -> Dict[str, str]:
         """Get headers for API requests."""
-        return {"HTTP_X_SYNC_ID": self.sync_id}
+        return {"X-Sync-Id": self.sync_id}
 
-    @lru_cache(maxsize=32)
-    def _get_cached_endpoint(self, endpoint_key: str) -> str:
-        """Cache API endpoints for better performance."""
+    def _get_endpoint(self, endpoint_key: str) -> str:
+        """Get API endpoint from constants."""
         return API_ENDPOINTS.get(endpoint_key, "")
+
+    def _handle_api_response(self, response, success_message: str = None) -> bool:
+        """
+        Handle API response and return success status.
+        
+        Args:
+            response: requests.Response object
+            success_message: Optional success message to log
+            
+        Returns:
+            bool: True if response is successful, False otherwise
+        """
+        if response.status_code in [200, 201, 204]:
+            if success_message:
+                self.logger.info(success_message)
+            return True
+        else:
+            error_msg = f"API returned status code {response.status_code}"
+            if response.text:
+                try:
+                    error_data = response.json()
+                    error_msg += f": {error_data.get('detail', response.text)}"
+                except:
+                    error_msg += f": {response.text}"
+            self.logger.error(f"API error: {error_msg}")
+            raise APICallError(error_msg)
+
+    def _make_api_request(self, method: str, endpoint: str, **kwargs) -> requests.Response:
+        """
+        Make an API request with common error handling.
+        
+        Args:
+            method: HTTP method ('GET', 'POST', 'PUT', 'DELETE')
+            endpoint: API endpoint
+            **kwargs: Additional arguments for requests
+            
+        Returns:
+            requests.Response: API response
+        """
+        url = f"{self.cloud_api_url.rstrip('/')}{endpoint}"
+        headers = self._get_headers()
+        
+        # Merge headers
+        if 'headers' in kwargs:
+            kwargs['headers'].update(headers)
+        else:
+            kwargs['headers'] = headers
+            
+        response = getattr(self._session, method.lower())(url, **kwargs)
+        return response
 
     def test_connection(self, url: str, sync_id: str) -> bool:
         """
@@ -73,16 +110,67 @@ class APISync:
         Returns:
             bool: True if connection successful, False otherwise
         """
+        # Save current settings temporarily
+        original_cloud_api_url = self.cloud_api_url
+        original_sync_id = self.sync_id
+        
+        # Set temporary settings for testing
+        self.cloud_api_url = url
+        self.sync_id = sync_id
+        
         try:
             # Test connection using sync_id only
-            test_url = f"{url.rstrip('/')}{self._get_cached_endpoint('USERS')}"
-            headers = {"HTTP_X_SYNC_ID": sync_id}
+            endpoint = self._get_endpoint('TEST')
             
-            # Make a simple GET request to test connectivity
-            response = self._session.get(test_url, headers=headers, timeout=10)
+            # Use the standard API request method for consistency
+            response = self._make_api_request('GET', endpoint, timeout=10)
             
-            if response.status_code in [200, 401, 403, 404]:
-                # Connection successful (200 = OK, 401/403 = Authentication required but connection works, 404 = Endpoint not found but server reachable)
+            # Handle successful response (200)
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    detail = data.get('detail', 'Connection successful')
+                    institute_name = data.get('institute_name', 'Unknown Institute')
+                    message = f"{detail} - {institute_name}"
+                    self.logger.info(f"API connection test successful: {message}")
+                    self.notification_service.notify(
+                        "Connection Test",
+                        message,
+                        "info"
+                    )
+                except Exception:
+                    # Fallback if JSON parsing fails
+                    self.logger.info(f"API connection test successful (Status: {response.status_code})")
+                    self.notification_service.notify(
+                        "Connection Test",
+                        f"API connection successful (Status: {response.status_code})",
+                        "info"
+                    )
+                return True
+            # Handle authentication error (401) - Invalid sync ID
+            elif response.status_code == 401:
+                try:
+                    data = response.json()
+                    detail = data.get('detail', 'Invalid Sync ID')
+                    self.logger.error(f"API connection test failed: {detail}")
+                    self.notification_service.notify(
+                        "Connection Test",
+                        detail,
+                        "error"
+                    )
+                except Exception:
+                    # Fallback if JSON parsing fails
+                    error_msg = "Invalid Sync ID: No Institute matches the given query."
+                    self.logger.error(f"API connection test failed: {error_msg}")
+                    self.notification_service.notify(
+                        "Connection Test",
+                        error_msg,
+                        "error"
+                    )
+                return False
+            # Handle other status codes
+            elif response.status_code in [403, 404]:
+                # Connection successful but endpoint issue
                 self.logger.info(f"API connection test successful (Status: {response.status_code})")
                 self.notification_service.notify(
                     "Connection Test",
@@ -114,48 +202,53 @@ class APISync:
                 "error"
             )
             return False
+        finally:
+            # Restore original settings
+            self.cloud_api_url = original_cloud_api_url
+            self.sync_id = original_sync_id
 
     def post_to_cloud(self) -> None:
         """Post attendance data to the cloud API using sync_id only."""
         self.logger.info("Starting data post to cloud")
-        try:
-            attendance_data = self.attendance_repo.cloud_format()
-            if not attendance_data:
-                self.logger.warning("No valid attendance data to post")
-                self.notification_service.notify(
-                    "Sync Info", "No pending attendance data to sync", "info"
-                )
-                return
-
-            self.logger.info(f"Posting {len(attendance_data)} attendance records to cloud")
-            url = f"{self.cloud_api_url.rstrip('/')}{self._get_cached_endpoint('ATTENDANCE')}"
-            headers = self._get_headers()
-            response = self._session.post(url, json={"attendance": attendance_data}, headers=headers)
-
-            if response.status_code == 200:
-                attendance_ids = [record["id"] for record in attendance_data if "id" in record]
-                if attendance_ids:
-                    posted_count = self.attendance_repo.mark_as_posted(attendance_ids)
-                    self.logger.info(f"Marked {posted_count} attendance records as posted")
-                self.logger.info(f"Successfully posted {len(attendance_data)} attendance records")
-                self.notification_service.notify(
-                    "Sync Success",
-                    f"Posted {len(attendance_data)} attendance records to cloud",
-                    "info",
-                )
-            else:
-                error_msg = f"API returned status code {response.status_code}"
-                if response.text:
-                    try:
-                        error_data = response.json()
-                        error_msg += f": {error_data.get('detail', response.text)}"
-                    except:
-                        error_msg += f": {response.text}"
-                raise APICallError(error_msg)
-        except Exception as e:
-            self.logger.error(f"Unexpected error posting to cloud: {e}")
+        attendance_data = self.attendance_repo.cloud_format()
+        if not attendance_data:
+            self.logger.warning("No valid attendance data to post")
             self.notification_service.notify(
-                "Sync Error", f"Unexpected error: {str(e)}", "error"
+                "Sync Info", "No pending attendance data to sync", "info"
+            )
+            return
+
+        self.logger.info(f"Posting {len(attendance_data)} attendance records to cloud")
+        endpoint = '/api/attendance/attendance-log/'
+        
+        # Prepare payload for API (remove internal ID)
+        api_payload = []
+        for record in attendance_data:
+            payload_item = record.copy()
+            self.logger.debug(f"Processing attendance record: {payload_item}")
+            print(payload_item)
+            if "id" in payload_item:
+                del payload_item["id"]
+            api_payload.append(payload_item)
+            
+        response = self._make_api_request(
+            'POST', 
+            endpoint, 
+            json=api_payload
+        )
+
+        if self._handle_api_response(
+            response, 
+            f"Successfully posted {len(attendance_data)} attendance records"
+        ):
+            attendance_ids = [record["id"] for record in attendance_data if "id" in record]
+            if attendance_ids:
+                posted_count = self.attendance_repo.mark_as_posted(attendance_ids)
+                self.logger.info(f"Marked {posted_count} attendance records as posted")
+            self.notification_service.notify(
+                "Sync Success",
+                f"Posted {len(attendance_data)} attendance records to cloud",
+                "info",
             )
 
     def sync_data(self) -> bool:
@@ -231,26 +324,26 @@ class APISync:
         Returns:
             Optional[Dict]: Dictionary containing users and devices or None if failed.
         """
-        try:
-            url = f"{self.cloud_api_url.rstrip('/')}{self._get_cached_endpoint('USERS')}"
-            headers = self._get_headers()
-            response = self._session.get(url, headers=headers)
-            if response.status_code == 200:
-                data = response.json()
-                users = data.get("users", [])
-                devices = data.get("devices", [])
-                self.logger.info(f"Successfully pulled {len(users)} users and {len(devices)} devices from cloud")
-                return {
-                    "users": users,
-                    "devices": devices
-                }
-            else:
-                self.logger.error(f"Users endpoint returned status code {response.status_code}")
-                self.logger.error(f"Response content: {response.text}")
-                return None
-        except Exception as e:
-            self.logger.error(f"Failed to pull users from cloud: {e}")
-            return None
+        endpoint = self._get_endpoint('USERS')
+        response = self._make_api_request('GET', endpoint)
+        
+        if self._handle_api_response(response):
+            data = response.json()
+            users = data.get("users", [])
+            devices = data.get("devices", [])
+            
+            # Ensure users and devices are lists, not integers
+            if not isinstance(users, list):
+                users = []
+            if not isinstance(devices, list):
+                devices = []
+            
+            self.logger.info(f"Successfully pulled {len(users)} users and {len(devices)} devices from cloud")
+            return {
+                "users": users,
+                "devices": devices
+            }
+        return None
 
     def _save_cloud_devices_to_database(self, cloud_devices: List[Dict]) -> int:
         """
@@ -260,6 +353,11 @@ class APISync:
         Returns:
             int: Number of devices saved/updated
         """
+        # Debug: Check if cloud_devices is actually a list
+        if not isinstance(cloud_devices, list):
+            self.logger.error(f"Expected list but got {type(cloud_devices)}: {cloud_devices}")
+            return 0
+            
         saved_count = 0
         
         for device_data in cloud_devices:
@@ -269,6 +367,7 @@ class APISync:
             if not existing_device:
                 # Create new device
                 device = Device(
+                    cloud_id=device_data.get('id'), # Save cloud primary key
                     ip_address=device_data.get('ip', ''),
                     port=device_data.get('port', 4370),
                     password=device_data.get('password', ''),
@@ -277,16 +376,17 @@ class APISync:
                 )
                 device.save()
                 saved_count += 1
-                self.logger.debug(f"Created new device: {device.device_model} ({device.ip_address})")
+                self.logger.debug(f"Created new device: {device.device_model} ({device.ip_address}, Cloud ID: {device.cloud_id})")
             else:
                 # Update existing device
+                existing_device.cloud_id = device_data.get('id', existing_device.cloud_id)
                 existing_device.port = device_data.get('port', existing_device.port)
                 existing_device.password = device_data.get('password', existing_device.password)
                 existing_device.device_model = device_data.get('name', existing_device.device_model)
                 existing_device.save()
                 saved_count += 1
-                self.logger.debug(f"Updated existing device: {existing_device.device_model} ({existing_device.ip_address})")
-        
+                self.logger.debug(f"Updated existing device: {existing_device.device_model} ({existing_device.ip_address}, Cloud ID: {existing_device.cloud_id})")
+
         return saved_count
 
     def _save_cloud_users_to_database(self, cloud_users: List[Dict]) -> int:
@@ -297,35 +397,53 @@ class APISync:
         Returns:
             int: Number of users saved/updated
         """
+        # Debug: Check if cloud_users is actually a list
+        if not isinstance(cloud_users, list):
+            self.logger.error(f"Expected list but got {type(cloud_users)}: {cloud_users}")
+            return 0
+            
         saved_count = 0
         for user_data in cloud_users:
-            # Check if user already exists
-            existing_user = self.user_repo.get_by_user_id(user_data.get('id'))
+            self.logger.debug(f"Processing cloud user data: {user_data}")
+            # Match user by cloud ID only - user_id field stores cloud ID
+            cloud_id_str = str(user_data.get('id', ''))
+            existing_user = self.user_repo.get_by_user_id(cloud_id_str)
+
+            # Find the assigned device from local DB based on cloud's device_id
+            assigned_device = None
+            cloud_device_id = user_data.get('device_id')
+            if cloud_device_id:
+                assigned_device = self.device_repo.get_by_cloud_id(cloud_device_id)
+
             if not existing_user:
                 # Create new user
                 user = User(
                     name=user_data.get('name', ''),
-                    user_type=user_data.get('user_type', 'STUDENT'),
-                    role=user_data.get('role', 0),
+                    user_type=user_data.get('type', 'STUDENT'), # Maps to 'type' in new JSON
+                    role=user_data.get('role', 0), # Default to 0 (USER) if not sent
                     password=user_data.get('password', ''),
-                    group_id=user_data.get('group_id'),
-                    user_id=user_data.get('id', ''),
-                    card=user_data.get('card'),
-                    device_code=user_data.get('device_code'),
+                    group_id=user_data.get('group_id', ''),
+                    user_id=str(user_data.get('id', '')),
+                    card=user_data.get('card_number'), # Maps to 'card_number' in new JSON
+                    device_code=user_data.get('device_code'), # Keep handling if present, or None
+                    device=assigned_device, # Set foreign key to correct machine
                     saved_to_device=False
                 )
                 user.save()
                 saved_count += 1
-                self.logger.debug(f"Created new user: {user.name} ({user.user_id})")
+                self.logger.debug(f"Created new user: {user.name} ({user.user_id}) for device: {assigned_device.ip_address if assigned_device else 'Unassigned'}")
             else:
                 # Update existing user
                 existing_user.name = user_data.get('name', existing_user.name)
-                existing_user.user_type = user_data.get('user_type', existing_user.user_type)
+                existing_user.user_type = user_data.get('type', existing_user.user_type) # Maps to 'type'
+                existing_user.device = assigned_device # Update machine assignment if changed in cloud
                 existing_user.role = user_data.get('role', existing_user.role)
                 existing_user.password = user_data.get('password', existing_user.password)
                 existing_user.group_id = user_data.get('group_id', existing_user.group_id)
-                existing_user.card = user_data.get('card', existing_user.card)
+                existing_user.card = user_data.get('card_number', existing_user.card) # Maps to 'card_number'
                 existing_user.device_code = user_data.get('device_code', existing_user.device_code)
+                # Ensure the canonical cloud ID is set
+                existing_user.user_id = str(user_data.get('id', existing_user.user_id))
                 existing_user.save()
                 saved_count += 1
                 self.logger.debug(f"Updated existing user: {existing_user.name} ({existing_user.user_id})")

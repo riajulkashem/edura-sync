@@ -1,4 +1,4 @@
-# PrimeSync Tray App
+# EduraSync Tray App
 
 A system tray application for managing ZKTeco devices, pulling attendance data, and syncing with a cloud API. This application supports both Windows and macOS, with automated builds via GitHub Actions.
 
@@ -21,8 +21,8 @@ A system tray application for managing ZKTeco devices, pulling attendance data, 
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your-username/prime-sync.git
-   cd prime-sync
+   git clone https://github.com/your-username/edura-sync.git
+   cd edura-sync
    ```
 
 2. Install dependencies:
@@ -50,17 +50,17 @@ Builds are automated via GitHub Actions. Artifacts are available in the Actions 
 
 2. Build using the provided spec file:
    ```bash
-   pyinstaller --noconfirm --clean primesync.spec
+   pyinstaller --noconfirm --clean edurasync.spec
    ```
 
 3. Find outputs in the `dist/` directory:
-   - **Windows**: `PrimeSyncTrayApp/` (contains `PrimeSyncTrayApp.exe`)
-   - **macOS**: `PrimeSyncTrayApp.app`
+   - **Windows**: `EduraSyncTrayApp/` (contains `EduraSyncTrayApp.exe`)
+   - **macOS**: `EduraSyncTrayApp.app`
 
 4. For macOS, move the app to Applications and optionally sign it:
    ```bash
-   mv dist/PrimeSyncTrayApp.app /Applications/
-   codesign --force --deep --sign - /Applications/PrimeSyncTrayApp.app
+   mv dist/EduraSyncTrayApp.app /Applications/
+   codesign --force --deep --sign - /Applications/EduraSyncTrayApp.app
    ```
 
 ## Device Configuration
@@ -100,27 +100,27 @@ db.close()
 ## GitHub Actions
 
 Automated builds run on push or pull request to the `main` branch:
-- **Windows**: Produces `PrimeSyncTrayApp-Windows` artifact.
-- **macOS**: Produces `PrimeSyncTrayApp-macOS` artifact.
+- **Windows**: Produces `EduraSyncTrayApp-Windows` artifact.
+- **macOS**: Produces `EduraSyncTrayApp-macOS` artifact.
 
 Download artifacts from the GitHub Actions tab.
 
 ## Troubleshooting
 
 - **macOS Crashes**:
-  - Check `logs/primesync.log` for errors.
+  - Check `logs/edurasync.log` for errors.
   - Run `python main.py` in terminal for console output.
   - Verify Python 3.9/3.10 compatibility.
   - Check crash reports in macOS Console.app.
 
 - **Notifications Not Showing**:
-  - Ensure `PrimeSync Manager` is enabled in macOS System Preferences > Notifications.
+  - Ensure `EduraSync Manager` is enabled in macOS System Preferences > Notifications.
   - Test `plyer` notifications:
     ```python
     from plyer import notification
-    notification.notify(title="Test", message="Test", app_name="PrimeSync Manager")
+    notification.notify(title="Test", message="Test", app_name="EduraSync Manager")
     ```
-  - Check fallback logs in `logs/primesync.log`.
+  - Check fallback logs in `logs/edurasync.log`.
 
 - **Device Connectivity Issues**:
   - Verify device is reachable:

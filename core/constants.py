@@ -1,11 +1,11 @@
 # core/constants.py
 """
-Application-wide constants for PrimeSync.
+Application-wide constants for EduraSync.
 Centralizes all static values used throughout the application.
 """
 
 # Application information
-APP_NAME = "PrimeSync"
+APP_NAME = "EduraSync"
 APP_VERSION = "1.0.0"
 APP_DESCRIPTION = "Attendance synchronization system"
 
@@ -19,18 +19,27 @@ DEVELOPER = {
 }
 
 # Database configuration
-DEFAULT_DB_NAME = "primesync.db"
+DEFAULT_DB_NAME = "edurasync.db"
 DB_PRAGMAS = {
     "journal_mode": "wal",  # Write-Ahead Logging for better concurrency
     "foreign_keys": 1,  # Enable foreign key support
-    "cache_size": -1024 * 64,  # 64MB cache size
+    "cache_size": -1024 * 16,  # 16MB cache size
+}
+
+# Minimal pragmas for background/low-resource mode
+DB_PRAGMAS_MINIMAL = {
+    "journal_mode": "wal",
+    "foreign_keys": 1,
+    "cache_size": -1024 * 4,  # 4MB cache size
+    "synchronous": "NORMAL",
+    "temp_store": "MEMORY",
 }
 
 # API Endpoints for DRF backend
 API_ENDPOINTS = {
-    "ATTENDANCE": "/api/attendance/",  # Attendance data endpoint
-    "USERS": "/api/attendance/device-users/",  # Users endpoint
-    "DEVICES": "/api/devices/",  # Devices endpoint
+    "ATTENDANCE": "/api/attendance/attendance-log/",  # Attendance data endpoint
+    "USERS": "/api/attendance/fingerprint-device/users-list/",  # Users endpoint
+    "TEST": "/api/attendance/fingerprint-device/test/"  # Test endpoint
 }
 
 # UI Configuration
@@ -77,14 +86,14 @@ DEVICE_DEFAULTS = {
 
 # Menu items
 MENU_ITEMS = {
-    "DEVICES_STATUS": "Devices Status",
-    "SYNC_DATA": "Sync Data",
-    "POST_CLOUD": "Post Cloud",
-    "PULL_MACHINE": "Pull Machine",
-    "DASHBOARD": "Dashboard",
-    "SETTINGS": "Settings",
-    "EXIT": "Exit",
-    "QUIT": "Quit",
+    "DEVICES_STATUS": "Check Device Status",
+    "SYNC_DATA": "Perform Full Sync",
+    "POST_CLOUD": "Upload Attendance",
+    "PULL_MACHINE": "Fetch New Logs",
+    "DASHBOARD": "Open Dashboard",
+    "SETTINGS": "App Settings",
+    "EXIT": "Minimize to Tray",
+    "QUIT": "Quit Application",
 }
 
 # Log messages
@@ -101,8 +110,5 @@ LOG_MESSAGES = {
 DEFAULT_SETTING = {
     "cloud_api_url": "",
     "sync_id": "",
-    "in_time_process": None,
-    "out_time_process": None,
-    "created_at": None,
-    "updated_at": None,
+    "sync_time": None,
 }
