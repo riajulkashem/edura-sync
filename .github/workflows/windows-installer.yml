@@ -78,6 +78,15 @@ jobs:
           echo "Developed by Riajul Kashem, Software Engineer" | Out-File -FilePath CREDITS.txt -Append -Encoding utf8
           echo "GitHub: https://github.com/riajulkashem" | Out-File -FilePath CREDITS.txt -Append -Encoding utf8
 
+      - name: Create CHANGELOG file
+        run: |
+          if (-not (Test-Path CHANGELOG.md)) {
+            "# Changelog" | Out-File -FilePath CHANGELOG.md -Encoding utf8
+            "" | Out-File -FilePath CHANGELOG.md -Append -Encoding utf8
+            "## Version ${{ env.APP_VERSION }}" | Out-File -FilePath CHANGELOG.md -Append -Encoding utf8
+            "- Initial release" | Out-File -FilePath CHANGELOG.md -Append -Encoding utf8
+          }
+
       - name: Create Inno Setup installer
         run: |
           echo "Creating Inno Setup script..."
@@ -148,6 +157,14 @@ jobs:
           # Create LICENSE file
           if (-not (Test-Path LICENSE)) {
             "MIT License - Attendance synchronization system by Riajul Kashem" | Out-File -FilePath LICENSE -Encoding utf8
+          }
+          
+          # Ensure README.md exists (case-sensitive for Inno Setup)
+          if (Test-Path readme.md) {
+            Copy-Item readme.md README.md -Force
+          } elseif (-not (Test-Path README.md)) {
+            "# EduraSync" | Out-File -FilePath README.md -Encoding utf8
+            "Attendance Synchronization System" | Out-File -FilePath README.md -Append -Encoding utf8
           }
           
           # Convert PNG to ICO
