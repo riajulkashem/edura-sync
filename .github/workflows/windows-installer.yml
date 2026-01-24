@@ -41,7 +41,14 @@ jobs:
         run: |
           $buildNum = "${{ github.run_number }}"
           $version = "1.0.$buildNum"
+          # Set file suffix based on branch (empty for main, -headless for headless branch)
+          if ("${{ github.ref }}" -eq "refs/heads/headless") {
+            $fileSuffix = "-headless"
+          } else {
+            $fileSuffix = ""
+          }
           echo "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          echo "FILE_SUFFIX=$fileSuffix" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           echo "version = '$version'" | Out-File -FilePath ./core/version.py -Encoding utf8
 
       - name: Build with PyInstaller
@@ -137,3 +144,21 @@ jobs:
             installer/EduraSync-Setup-${{ env.APP_VERSION }}.exe.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Public Release
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/headless')
+        uses: softprops/action-gh-release@v2
+        with:
+          # Point this to your public repository for downloads
+          repository: riajulkashem/edura-sync
+          name: EduraSync v${{ env.APP_VERSION }}${{ env.FILE_SUFFIX }}
+          tag_name: v${{ env.APP_VERSION }}${{ env.FILE_SUFFIX }}
+          draft: false
+          prerelease: false
+          files: |
+            installer/*.exe
+            installer/*.sha256
+        env:
+          # Use the PAT that has access to the public repo
+          # Create this secret in your repository settings: Settings > Secrets and variables > Actions
+          GITHUB_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
