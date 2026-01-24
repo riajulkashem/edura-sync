@@ -30,10 +30,6 @@ class Config(Singleton):
             return
         self._initialized = True
 
-        # Configure logging
-        self._setup_logging()
-        self.logger = logging.getLogger(__name__)
-
         # Determine base paths based on execution context (bundled or source)
         self._set_base_paths()
         self._set_data_paths()
@@ -44,22 +40,56 @@ class Config(Singleton):
         self.DB_NAME: str = "edurasync.db"
         self.DB_PATH: Path = self.DATA_DIR / self.DB_NAME
 
+        # Ensure required directories exist (including logs directory)
+        self.ensure_dirs()
+
+        # Configure logging AFTER paths are set up
+        self._setup_logging()
+        self.logger = logging.getLogger(__name__)
+
         # Validate icon path
         self._validate_icon_path()
         self.logger.info(f"Resolved ICON_PATH: {self.ICON_PATH}")
-
-        # Ensure required directories exist
-        self.ensure_dirs()
+        self.logger.info(f"Log file location: {self.LOG_FILE}")
 
     def _setup_logging(self) -> None:
-        """Configure logging to file or stdout based on execution context."""
-        log_file = None if getattr(sys, "frozen", False) else "logs/edurasync.log"
-        logging.basicConfig(
-            filename=log_file,
-            level=logging.INFO,
-            format="%(asctime)s [%(levelname)s] %(message)s",
-            filemode="a",
+        """Configure logging to file based on execution context."""
+        from logging.handlers import RotatingFileHandler
+        
+        # Always log to file when installed (frozen) or when running from source
+        if getattr(sys, "frozen", False):
+            # Running as installed application - use LOG_FILE path
+            log_file = str(self.LOG_FILE)
+        else:
+            # Running from source - use relative path
+            log_file = "logs/edurasync.log"
+            # Ensure logs directory exists
+            Path("logs").mkdir(exist_ok=True)
+        
+        # Set up rotating file handler (5 MB max, 5 backup files)
+        file_handler = RotatingFileHandler(
+            log_file,
+            maxBytes=5*1024*1024,  # 5 MB
+            backupCount=5,
+            encoding='utf-8'
         )
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(
+            logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        )
+        
+        # Also add console handler for immediate feedback
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+        console_handler.setFormatter(
+            logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+        )
+        
+        # Configure root logger with both handlers
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.INFO)
+        root_logger.addHandler(file_handler)
+        root_logger.addHandler(console_handler)
 
     def _set_base_paths(self) -> None:
         """Set BASE_DIR and INSTALL_DIR based on whether running as bundled or source."""

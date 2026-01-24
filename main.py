@@ -491,31 +491,35 @@ class PrimeSync:
         )
 
 if __name__ == "__main__":
-    # Create logs directory if it doesn't exist
-    logs_dir = Path("logs")
-    logs_dir.mkdir(exist_ok=True)
+    # Note: Logging is configured in Config class, but we set up basic logging here
+    # for early initialization before Config is created
+    if not getattr(sys, "frozen", False):
+        # Only set up file logging when running from source
+        # When frozen, Config will handle logging setup
+        logs_dir = Path("logs")
+        logs_dir.mkdir(exist_ok=True)
 
-    # Setup logging with rotation
-    file_handler = RotatingFileHandler(
-        "logs/edurasync.log",
-        maxBytes=5*1024*1024,  # 5 MB
-        backupCount=5
-    )
-    file_handler.setLevel(logging.INFO)
-    file_handler.setFormatter(
-        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-    )
-    
-    stream_handler = logging.StreamHandler()
-    stream_handler.setLevel(logging.INFO)
-    stream_handler.setFormatter(
-        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-    )
-    
-    logging.basicConfig(
-        level=logging.INFO,
-        handlers=[file_handler, stream_handler]
-    )
+        file_handler = RotatingFileHandler(
+            "logs/edurasync.log",
+            maxBytes=5*1024*1024,  # 5 MB
+            backupCount=5,
+            encoding='utf-8'
+        )
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(
+            logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        )
+        
+        stream_handler = logging.StreamHandler()
+        stream_handler.setLevel(logging.INFO)
+        stream_handler.setFormatter(
+            logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        )
+        
+        logging.basicConfig(
+            level=logging.INFO,
+            handlers=[file_handler, stream_handler]
+        )
 
     # Global exception handler
     sys.excepthook = handle_exception

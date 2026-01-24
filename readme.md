@@ -252,7 +252,27 @@ EduraSync/
 - **Application Won't Start**:
   - Check Python version: `python --version` (requires 3.13.2+)
   - Verify all dependencies are installed
-  - Check logs in `logs/edurasync.log`
+  - Check logs (see Log File Locations below)
+
+### Log File Locations
+
+After installing on Windows, log files are stored in:
+
+**Windows (Installed Application):**
+- Primary location: `C:\Program Files\EduraSync\data\logs\edurasync.log`
+- Fallback location: `%APPDATA%\EduraSync\logs\edurasync.log`
+  - Full path: `C:\Users\<YourUsername>\AppData\Roaming\EduraSync\logs\edurasync.log`
+
+**To find your log file:**
+1. Press `Win + R` to open Run dialog
+2. Type: `%APPDATA%\EduraSync\logs` and press Enter
+3. Open `edurasync.log` in a text editor
+
+**Windows (Running from Source):**
+- Log file: `logs/edurasync.log` (in the project directory)
+
+**macOS:**
+- Log file: `~/Library/Application Support/EduraSync/logs/edurasync.log`
 
 - **Database Errors**:
   - Database file: `edurasync.db` in project root
