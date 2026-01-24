@@ -44,10 +44,33 @@ jobs:
       - name: Build with PyInstaller
         run: |
           pyinstaller --clean --noconfirm edurasync.spec
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "PyInstaller failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+          Write-Host "PyInstaller completed successfully"
+          Write-Host "Checking dist directory..."
+          dir dist
+          if (Test-Path dist\EduraSync) {
+            Write-Host "Found dist\EduraSync directory"
+            dir dist\EduraSync
+          } else {
+            Write-Host "dist\EduraSync directory not found"
+            Write-Host "Contents of dist:"
+            Get-ChildItem dist -Recurse | Select-Object FullName
+            exit 1
+          }
 
       - name: Verify PyInstaller output
         run: |
-          dir dist\EduraSync || (echo "PyInstaller output missing" && exit 1)
+          if (-not (Test-Path dist\EduraSync)) {
+            Write-Host "ERROR: dist\EduraSync directory does not exist"
+            Write-Host "Contents of dist:"
+            Get-ChildItem dist -ErrorAction SilentlyContinue | Select-Object Name, FullName
+            exit 1
+          }
+          Write-Host "PyInstaller output verified successfully"
+          dir dist\EduraSync
 
       - name: Create credits file
         run: |

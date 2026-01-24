@@ -67,7 +67,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,  # Disable UPX compression (requires UPX to be installed)
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
@@ -77,4 +77,16 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=str(project_root / "assets" / "icon.png") if (project_root / "assets" / "icon.png").exists() else None,
+)
+
+# COLLECT creates the directory structure when noarchive=False
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name="EduraSync",
 )
