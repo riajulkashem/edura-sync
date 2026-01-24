@@ -33,11 +33,35 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip setuptools wheel
+          # Install peewee explicitly first (sometimes needed for dependencies)
+          pip install peewee==3.17.9
+          # Install all requirements
           pip install -r requirements.txt
-          pip install pywin32 pyinstaller pillow
-          # Verify peewee is installed
-          python -c "import peewee; print(f'peewee version: {peewee.__version__}'); print(f'peewee path: {peewee.__file__}')"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "ERROR: Failed to install requirements.txt"
+            Write-Host "Attempting to install packages individually..."
+            pip install certifi cffi charset-normalizer click cryptography idna loguru notify_py peewee-migrate playhouse PySide6 pyzk requests tzlocal urllib3 pywin32
+            if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+            }
+          }
+          # Install additional build dependencies
+          pip install pyinstaller pillow
+          # Verify critical packages are installed
+          Write-Host "Verifying installed packages..."
+          python -c "import peewee; print(f'✓ peewee version: {peewee.__version__}'); print(f'✓ peewee path: {peewee.__file__}')"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "ERROR: peewee not installed! Checking installed packages..."
+            pip list | Select-String "peewee"
+            pip show peewee
+            Write-Host "Installed packages containing 'peewee':"
+            pip list | findstr /i "peewee"
+            exit 1
+          }
+          python -c "import PySide6; print(f'✓ PySide6 version: {PySide6.__version__}')"
+          python -c "import zk; print('✓ zk library installed')"
+          Write-Host "All critical packages verified successfully"
 
       - name: Create version file
         run: |
