@@ -48,9 +48,9 @@ jobs:
           }
           # Install additional build dependencies
           pip install pyinstaller pillow
-          # Verify critical packages are installed
+          # Verify critical packages are installed (avoid Unicode in Windows console)
           Write-Host "Verifying installed packages..."
-          python -c "import peewee; print(f'✓ peewee version: {peewee.__version__}'); print(f'✓ peewee path: {peewee.__file__}')"
+          python -c "import peewee; print('OK: peewee version:', peewee.__version__); print('OK: peewee path:', peewee.__file__)"
           if ($LASTEXITCODE -ne 0) {
             Write-Host "ERROR: peewee not installed! Checking installed packages..."
             pip list | Select-String "peewee"
@@ -59,8 +59,8 @@ jobs:
             pip list | findstr /i "peewee"
             exit 1
           }
-          python -c "import PySide6; print(f'✓ PySide6 version: {PySide6.__version__}')"
-          python -c "import zk; print('✓ zk library installed')"
+          python -c "import PySide6; print('OK: PySide6 version:', PySide6.__version__)"
+          python -c "import zk; print('OK: zk library installed')"
           Write-Host "All critical packages verified successfully"
 
       - name: Create version file
@@ -92,10 +92,10 @@ jobs:
           # Verify peewee is in the build
           Write-Host "Checking if peewee is in the build..."
           if (Test-Path "dist\EduraSync\_internal\peewee") {
-            Write-Host "✓ peewee directory found in build"
+            Write-Host "OK: peewee directory found in build"
             Get-ChildItem "dist\EduraSync\_internal\peewee" | Select-Object -First 5 Name
           } else {
-            Write-Host "✗ WARNING: peewee directory NOT found in build"
+            Write-Host "WARNING: peewee directory NOT found in build"
             Write-Host "Contents of _internal:"
             Get-ChildItem "dist\EduraSync\_internal" | Where-Object { $_.Name -like "*peewee*" -or $_.Name -like "*playhouse*" } | Select-Object Name
           }
