@@ -7,6 +7,9 @@ on:
     branches: [ main, headless ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-windows:
     runs-on: windows-latest
@@ -48,53 +51,18 @@ jobs:
             Write-Host "PyInstaller failed with exit code $LASTEXITCODE"
             exit $LASTEXITCODE
           }
-          Write-Host "PyInstaller completed successfully"
-          Write-Host "Checking dist directory..."
-          dir dist
-          if (Test-Path dist\EduraSync) {
-            Write-Host "Found dist\EduraSync directory"
-            dir dist\EduraSync
-          } else {
-            Write-Host "dist\EduraSync directory not found"
-            Write-Host "Contents of dist:"
-            Get-ChildItem dist -Recurse | Select-Object FullName
-            exit 1
-          }
-
-      - name: Verify PyInstaller output
-        run: |
-          if (-not (Test-Path dist\EduraSync)) {
-            Write-Host "ERROR: dist\EduraSync directory does not exist"
-            Write-Host "Contents of dist:"
-            Get-ChildItem dist -ErrorAction SilentlyContinue | Select-Object Name, FullName
-            exit 1
-          }
-          Write-Host "PyInstaller output verified successfully"
-          dir dist\EduraSync
 
       - name: Create credits file
         run: |
           echo "PrimeSync - Attendance Synchronization System" | Out-File -FilePath CREDITS.txt -Encoding utf8
           echo "Developed by Riajul Kashem, Software Engineer" | Out-File -FilePath CREDITS.txt -Append -Encoding utf8
-          echo "GitHub: https://github.com/riajulkashem" | Out-File -FilePath CREDITS.txt -Append -Encoding utf8
-
-      - name: Create CHANGELOG file
-        run: |
-          if (-not (Test-Path CHANGELOG.md)) {
-            "# Changelog" | Out-File -FilePath CHANGELOG.md -Encoding utf8
-            "" | Out-File -FilePath CHANGELOG.md -Append -Encoding utf8
-            "## Version ${{ env.APP_VERSION }}" | Out-File -FilePath CHANGELOG.md -Append -Encoding utf8
-            "- Initial release" | Out-File -FilePath CHANGELOG.md -Append -Encoding utf8
-          }
 
       - name: Create Inno Setup installer
         run: |
-          echo "Creating Inno Setup script..."
           $innoScript = @"
           #define MyAppName "EduraSync"
           #define MyAppVersion "${{ env.APP_VERSION }}"
           #define MyAppPublisher "Riajul Kashem"
-          #define MyAppURL "https://github.com/riajulkashem/prime-sync"
           #define MyAppExeName "EduraSync.exe"
           
           [Setup]
@@ -102,114 +70,49 @@ jobs:
           AppName={#MyAppName}
           AppVersion={#MyAppVersion}
           AppPublisher={#MyAppPublisher}
-          AppPublisherURL={#MyAppURL}
-          AppSupportURL={#MyAppURL}
-          AppUpdatesURL={#MyAppURL}
           DefaultDirName={autopf}\{#MyAppName}
-          DefaultGroupName={#MyAppName}
-          DisableProgramGroupPage=yes
-          LicenseFile=LICENSE
-          InfoBeforeFile=CREDITS.txt
           OutputDir=installer
           OutputBaseFilename={#MyAppName}-Setup-{#MyAppVersion}
-          SetupIconFile=assets\icon.ico
           Compression=lzma
           SolidCompression=yes
           WizardStyle=modern
           PrivilegesRequired=admin
           
-          [Languages]
-          Name: "english"; MessagesFile: "compiler:Default.isl"
-          
-          [Tasks]
-          Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
-          Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked; OnlyBelowVersion: 6.1; Check: not IsAdminInstallMode
-          
           [Files]
           Source: "dist\EduraSync\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-          Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
-          Source: "CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
-          
-          [Dirs]
-          Name: "{app}\data"; Permissions: users-modify
-          Name: "{app}\logs"; Permissions: users-modify
           
           [Icons]
           Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-          Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
           Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
-          Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: quicklaunchicon
+          
+          [Tasks]
+          Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
           
           [Run]
           Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
-          
-          [Registry]
-          Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "EduraSync"; ValueData: """{app}\{#MyAppExeName}"" --headless"; Flags: uninsdeletevalue
           "@
           
           $innoScript | Out-File -FilePath ./installer.iss -Encoding utf8
           
-          # Debug: List files
-          dir .
-          dir assets
-          dir dist\EduraSync
-          
-          # Create LICENSE file
-          if (-not (Test-Path LICENSE)) {
-            "MIT License - Attendance synchronization system by Riajul Kashem" | Out-File -FilePath LICENSE -Encoding utf8
-          }
-          
-          # Ensure README.md exists (case-sensitive for Inno Setup)
-          # On Windows, filesystem is case-insensitive, so check actual filename
-          $readmeFile = Get-ChildItem -Path . -Filter "readme.md" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($readmeFile -and $readmeFile.Name -ne "README.md") {
-            # File exists but with different case, rename it
-            Rename-Item -Path $readmeFile.FullName -NewName "README.md" -Force
-          } elseif (-not (Test-Path README.md)) {
-            # File doesn't exist at all, create it
-            "# EduraSync" | Out-File -FilePath README.md -Encoding utf8
-            "Attendance Synchronization System" | Out-File -FilePath README.md -Append -Encoding utf8
-          }
-          
-          # Convert PNG to ICO
-          if (-not (Test-Path assets/icon.ico)) {
-            mkdir -Force assets
-            if (-not (Test-Path assets/icon.png)) {
-              throw "assets/icon.png not found"
-            }
-            pip install pillow
-            python -c "from PIL import Image; img = Image.open('assets/icon.png'); img.save('assets/icon.ico')"
-          }
+          # Create placeholder files if missing to prevent Inno Setup errors
+          if (-not (Test-Path LICENSE)) { "MIT License" | Out-File -FilePath LICENSE }
+          if (-not (Test-Path README.md)) { "# EduraSync" | Out-File -FilePath README.md }
           
           # Run Inno Setup compiler
           mkdir -Force installer
-          $innoPath = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
-          if (-not (Test-Path $innoPath)) {
-            throw "Inno Setup compiler not found at $innoPath"
-          }
-          & $innoPath installer.iss
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "Inno Setup compiler failed with exit code $LASTEXITCODE"
-            exit $LASTEXITCODE
-          }
-          Write-Host "Inno Setup compiler completed successfully"
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' installer.iss
 
-      - name: Debug installer files
+      - name: Generate Checksum
+        shell: pwsh
         run: |
-          Write-Host "Checking installer directory..."
-          if (Test-Path installer) {
-            dir installer
-            $installerFile = Get-ChildItem -Path installer -Filter "EduraSync-Setup-*.exe" | Select-Object -First 1
-            if ($installerFile) {
-              Write-Host "Installer file found: $($installerFile.FullName)"
-              Write-Host "File size: $($installerFile.Length) bytes"
-            } else {
-              Write-Host "WARNING: Installer file not found in installer directory"
-              Write-Host "Contents of installer directory:"
-              Get-ChildItem installer | Select-Object Name, Length
-            }
+          $installerPath = "installer/EduraSync-Setup-${{ env.APP_VERSION }}.exe"
+          if (Test-Path $installerPath) {
+            $hash = (Get-FileHash $installerPath -Algorithm SHA256).Hash
+            echo "SHA256: $hash"
+            $hash | Out-File -FilePath "$installerPath.sha256"
+            Write-Host "Checksum generated at $installerPath.sha256"
           } else {
-            Write-Host "ERROR: installer directory does not exist"
+            Write-Host "Installer not found, skipping checksum."
             exit 1
           }
 
@@ -217,17 +120,20 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: EduraSync-Windows-Installer
-          path: installer/EduraSync-Setup-${{ env.APP_VERSION }}.exe
+          path: |
+            installer/EduraSync-Setup-${{ env.APP_VERSION }}.exe
+            installer/EduraSync-Setup-${{ env.APP_VERSION }}.exe.sha256
 
       - name: Create Release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        id: create_release
         uses: softprops/action-gh-release@v2
         with:
           name: EduraSync v${{ env.APP_VERSION }}
           tag_name: v${{ env.APP_VERSION }}
           draft: false
           prerelease: false
-          files: ./installer/EduraSync-Setup-${{ env.APP_VERSION }}.exe
+          files: |
+            installer/EduraSync-Setup-${{ env.APP_VERSION }}.exe
+            installer/EduraSync-Setup-${{ env.APP_VERSION }}.exe.sha256
         env:
-          GITHUB_TOKEN: ${{ secrets.TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
