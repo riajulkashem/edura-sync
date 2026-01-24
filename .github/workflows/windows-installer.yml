@@ -160,9 +160,13 @@ jobs:
           }
           
           # Ensure README.md exists (case-sensitive for Inno Setup)
-          if (Test-Path readme.md) {
-            Copy-Item readme.md README.md -Force
+          # On Windows, filesystem is case-insensitive, so check actual filename
+          $readmeFile = Get-ChildItem -Path . -Filter "readme.md" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($readmeFile -and $readmeFile.Name -ne "README.md") {
+            # File exists but with different case, rename it
+            Rename-Item -Path $readmeFile.FullName -NewName "README.md" -Force
           } elseif (-not (Test-Path README.md)) {
+            # File doesn't exist at all, create it
             "# EduraSync" | Out-File -FilePath README.md -Encoding utf8
             "Attendance Synchronization System" | Out-File -FilePath README.md -Append -Encoding utf8
           }
@@ -179,17 +183,41 @@ jobs:
           
           # Run Inno Setup compiler
           mkdir -Force installer
-          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' installer.iss
+          $innoPath = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $innoPath)) {
+            throw "Inno Setup compiler not found at $innoPath"
+          }
+          & $innoPath installer.iss
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Inno Setup compiler failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+          Write-Host "Inno Setup compiler completed successfully"
 
       - name: Debug installer files
         run: |
-          dir installer
+          Write-Host "Checking installer directory..."
+          if (Test-Path installer) {
+            dir installer
+            $installerFile = Get-ChildItem -Path installer -Filter "EduraSync-Setup-*.exe" | Select-Object -First 1
+            if ($installerFile) {
+              Write-Host "Installer file found: $($installerFile.FullName)"
+              Write-Host "File size: $($installerFile.Length) bytes"
+            } else {
+              Write-Host "WARNING: Installer file not found in installer directory"
+              Write-Host "Contents of installer directory:"
+              Get-ChildItem installer | Select-Object Name, Length
+            }
+          } else {
+            Write-Host "ERROR: installer directory does not exist"
+            exit 1
+          }
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: EduraSync-Windows-Installer
-          path: installer/PrimeSync-Setup-${{ env.APP_VERSION }}.exe
+          path: installer/EduraSync-Setup-${{ env.APP_VERSION }}.exe
 
       - name: Create Release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -200,6 +228,6 @@ jobs:
           tag_name: v${{ env.APP_VERSION }}
           draft: false
           prerelease: false
-          files: ./installer/PrimeSync-Setup-${{ env.APP_VERSION }}.exe
+          files: ./installer/EduraSync-Setup-${{ env.APP_VERSION }}.exe
         env:
           GITHUB_TOKEN: ${{ secrets.TOKEN }}
