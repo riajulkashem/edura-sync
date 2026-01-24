@@ -1,45 +1,189 @@
-# EduraSync Tray App
+# EduraSync
 
-A system tray application for managing ZKTeco devices, pulling attendance data, and syncing with a cloud API. This application supports both Windows and macOS, with automated builds via GitHub Actions.
+A comprehensive attendance synchronization system for ZKTeco fingerprint devices. EduraSync manages device connections, pulls attendance data, syncs users with cloud APIs, and provides a modern GUI dashboard with system tray integration.
 
 ## Features
 
-- System tray interface for easy access.
-- Manage ZKTeco devices (e.g., K40) to pull attendance data.
-- Sync data with a cloud API.
-- Configurable settings for API credentials and schedules.
-- System notifications for key actions (device checks, data pull/push).
-- Automated builds for Windows and macOS.
+- **Device Management**: Connect and manage multiple ZKTeco fingerprint devices
+- **User Synchronization**: Sync users from cloud API to local database and devices
+- **Attendance Data Sync**: Pull attendance logs from devices and push to cloud API
+- **Modern GUI**: PySide6-based dashboard with device management, user management, and status monitoring
+- **System Tray Integration**: Background operation with system tray access
+- **Headless Mode**: Run with minimal resources (tray only, no dashboard)
+- **Service Mode**: Run as Windows service for automated scheduled tasks
+- **Automated Builds**: GitHub Actions for Windows installer creation
+- **Real-time Notifications**: System notifications for device status, sync operations, and errors
+- **Database Management**: SQLite database with optimized queries and caching
 
 ## Prerequisites
 
-- Python 3.9 or 3.10.
-- ZKTeco device (e.g., K40 at IP `192.168.0.201`, port `4370`).
-- A 64x64 PNG icon file at `assets/icon.png`.
+- **Python**: 3.13.2 or higher
+- **Operating System**: Windows 10/11 or macOS
+- **ZKTeco Device**: Compatible fingerprint attendance device (e.g., K40, ZK Teco)
+- **Network**: Device must be accessible on the network
+- **Cloud API**: Backend API endpoint for user and attendance synchronization
 
-## Setup
+## Installation
+
+### From Source
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your-username/edura-sync.git
+   git clone https://github.com/riajulkashem/edura-sync.git
    cd edura-sync
    ```
 
-2. Install dependencies:
+2. Create a virtual environment (recommended):
+   ```bash
+   python -m venv venv
+   # On Windows:
+   venv\Scripts\activate
+   # On macOS/Linux:
+   source venv/bin/activate
+   ```
+
+3. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
-
-3. Ensure `assets/icon.png` exists (create a 64x64 PNG if missing).
 
 4. Run the application:
    ```bash
    python main.py
    ```
 
+### Windows Installer (Recommended)
+
+Download the latest Windows installer from [GitHub Releases](https://github.com/riajulkashem/edura-sync/releases).
+
+#### ⚠️ Security Note (SmartScreen)
+
+Because this application is not signed with a paid Microsoft Developer Certificate, Windows will display a blue "Windows protected your PC" warning when you run the installer.
+
+**To bypass this and install:**
+1. Click **"More info"** on the blue dialog box.
+2. Click **"Run anyway"**.
+
+#### 🛡️ Verifying the Download
+
+To ensure the file hasn't been tampered with, you can verify the SHA256 checksum provided in the release assets.
+
+**Using PowerShell:**
+1. Open PowerShell in your download folder.
+2. Run the following command:
+   ```powershell
+   Get-FileHash ./EduraSync-Setup-1.0.x.exe -Algorithm SHA256
+   ```
+3. Compare the output hash with the content of the `.sha256` file downloaded from the release page.
+
+The installer includes:
+- Pre-built executable
+- Automatic startup configuration
+- Desktop shortcut (optional)
+- All required dependencies
+
+## Configuration
+
+### Initial Setup
+
+1. **Configure Cloud API Settings**:
+   - Open the application
+   - Navigate to Settings
+   - Enter your Cloud API URL
+   - Enter your Sync ID (provided by your institution)
+
+2. **Sync Users from Cloud**:
+   - Use "Sync Users" from the system tray menu or dashboard
+   - This will pull users and devices from the cloud API
+   - Users will be automatically migrated to connected devices
+
+3. **Add Devices**:
+   - Devices are automatically added when syncing from cloud
+   - Or manually add devices through the Device Management tab
+   - Configure IP address, port (default: 4370), and password
+
+### Device Configuration
+
+Devices are configured with the following information:
+- **IP Address**: Device's network IP (e.g., `192.168.0.165`)
+- **Port**: Default is `4370` for ZKTeco devices
+- **Password**: Device password (usually empty or `0`)
+- **Cloud ID**: Automatically assigned when syncing from cloud
+
+## Usage
+
+### Running Modes
+
+1. **Full GUI Mode** (default):
+   ```bash
+   python main.py
+   ```
+   - Dashboard window
+   - System tray icon
+   - Full feature access
+
+2. **Headless Mode** (tray only):
+   ```bash
+   python main.py --headless
+   ```
+   - System tray only
+   - Reduced resource usage
+   - Background operation
+
+3. **Service Mode** (Windows):
+   ```bash
+   python main.py --service
+   ```
+   - No GUI
+   - Scheduled tasks only
+   - Minimal resource usage
+
+### System Tray Menu
+
+- **Check Device Status**: Verify connectivity to all configured devices
+- **Sync Users**: Pull users and devices from cloud API
+- **Upload Attendance**: Push pending attendance records to cloud
+- **Fetch New Logs**: Pull latest attendance data from devices
+- **Open Dashboard**: Launch the main GUI window
+- **App Settings**: Configure API credentials and schedules
+- **Quit Application**: Exit the application
+
+### Dashboard Features
+
+- **Device Management**: View and manage connected devices
+- **User Management**: View users synced from cloud
+- **Status Monitoring**: Real-time device and sync status
+- **Settings**: Configure API endpoints and sync schedules
+
+## API Integration
+
+EduraSync integrates with a Django REST Framework backend:
+
+### Endpoints
+
+- **Users List**: `GET /api/attendance/fingerprint-device/users-list/`
+  - Returns users and devices assigned to the sync ID
+  - Format: `{"users": [...], "devices": [...]}`
+
+- **Attendance Log**: `POST /api/attendance/attendance-log/`
+  - Sends attendance records to cloud
+  - Format: `[{"device": 2, "user_id": "7596", "timestamp": "...", ...}]`
+
+- **Test Connection**: `GET /api/attendance/fingerprint-device/test/`
+  - Validates sync ID and connection
+
+### Authentication
+
+All API requests use the `X-Sync-Id` header for authentication.
+
 ## Building
 
-Builds are automated via GitHub Actions. Artifacts are available in the Actions tab after a push to the `main` branch.
+### Automated Builds
+
+Builds are automated via GitHub Actions:
+- **Trigger**: Push to `main` or `headless` branch
+- **Output**: Windows installer (`.exe`) with SHA256 checksum
+- **Artifacts**: Available in GitHub Actions tab
 
 ### Manual Build
 
@@ -48,104 +192,127 @@ Builds are automated via GitHub Actions. Artifacts are available in the Actions 
    pip install pyinstaller
    ```
 
-2. Build using the provided spec file:
+2. Build using the spec file:
    ```bash
-   pyinstaller --noconfirm --clean edurasync.spec
+   pyinstaller --clean --noconfirm edurasync.spec
    ```
 
-3. Find outputs in the `dist/` directory:
-   - **Windows**: `EduraSyncTrayApp/` (contains `EduraSyncTrayApp.exe`)
-   - **macOS**: `EduraSyncTrayApp.app`
+3. Output location:
+   - **Windows**: `dist/EduraSync/` directory containing `EduraSync.exe`
 
-4. For macOS, move the app to Applications and optionally sign it:
-   ```bash
-   mv dist/EduraSyncTrayApp.app /Applications/
-   codesign --force --deep --sign - /Applications/EduraSyncTrayApp.app
-   ```
+## Project Structure
 
-## Device Configuration
-
-Configure your ZKTeco K40 device in the application or database:
-
-- **IP**: `192.168.0.201`
-- **Port**: `4370`
-- **Password**: `0` (default)
-- **Model**: `K40`
-
-To add the device manually to the database:
-```python
-from models import Device, db
-db.connect()
-Device.create(
-    ip_address="192.168.0.201",
-    port=4370,
-    password="0",
-    device_model="K40",
-    status="Offline"
-)
-db.close()
 ```
-
-## Usage
-
-1. On first run, configure settings (Cloud API URL, username, password, client key).
-2. Use the system tray menu to:
-   - Check device status.
-   - Pull attendance data from devices.
-   - Push data to the cloud.
-   - View the dashboard or adjust settings.
-3. Notifications will appear for successful operations or errors.
-4. Logs are saved to `logs/zkteco.log`.
-
-## GitHub Actions
-
-Automated builds run on push or pull request to the `main` branch:
-- **Windows**: Produces `EduraSyncTrayApp-Windows` artifact.
-- **macOS**: Produces `EduraSyncTrayApp-macOS` artifact.
-
-Download artifacts from the GitHub Actions tab.
+EduraSync/
+├── core/                 # Core functionality
+│   ├── config.py        # Configuration management
+│   ├── constants.py     # Application constants
+│   └── validation.py    # Input validation
+├── interfaces/          # Interface layers
+│   ├── database/       # Database models and repositories
+│   └── gui_pyside6/    # GUI components
+├── services/            # Business logic
+│   ├── api_sync.py     # Cloud API synchronization
+│   ├── device_manager.py # Device communication
+│   └── notification.py # System notifications
+├── assets/             # Application assets
+├── scripts/            # Utility scripts
+├── tests/              # Test files
+└── main.py             # Application entry point
+```
 
 ## Troubleshooting
 
-- **macOS Crashes**:
-  - Check `logs/edurasync.log` for errors.
-  - Run `python main.py` in terminal for console output.
-  - Verify Python 3.9/3.10 compatibility.
-  - Check crash reports in macOS Console.app.
+### Device Connection Issues
 
-- **Notifications Not Showing**:
-  - Ensure `EduraSync Manager` is enabled in macOS System Preferences > Notifications.
-  - Test `plyer` notifications:
-    ```python
-    from plyer import notification
-    notification.notify(title="Test", message="Test", app_name="EduraSync Manager")
-    ```
-  - Check fallback logs in `logs/edurasync.log`.
+- **Device Not Found**:
+  - Verify device IP address and port
+  - Check network connectivity: `ping <device-ip>`
+  - Test port accessibility: `telnet <device-ip> 4370`
+  - Verify device password
 
-- **Device Connectivity Issues**:
-  - Verify device is reachable:
-    ```bash
-    ping 192.168.0.201
-    telnet 192.168.0.201 4370
-    ```
-  - Check macOS firewall:
-    ```bash
-    sudo /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate
-    ```
-  - Test with ZKAccess software to confirm device functionality.
+- **Users Not Syncing to Device**:
+  - Ensure users are synced from cloud first
+  - Check device connectivity
+  - Verify device has sufficient storage
 
-- **Build Failures**:
-  - Review GitHub Actions logs for missing dependencies.
-  - Ensure `zk` library is installed (may require manual inclusion).
+### Cloud API Issues
 
-## Contributing
+- **Connection Failed**:
+  - Verify Cloud API URL is correct
+  - Check Sync ID is valid
+  - Test connection using "Test Connection" in settings
 
-1. Fork the repository.
-2. Create a feature branch (`git checkout -b feature/your-feature`).
-3. Commit changes (`git commit -m "Add your feature"`).
-4. Push to the branch (`git push origin feature/your-feature`).
-5. Open a pull request.
+- **Users Not Found**:
+  - Ensure users are synced from cloud before fetching device logs
+  - Check that cloud user IDs match device user IDs
+
+### Application Issues
+
+- **Application Won't Start**:
+  - Check Python version: `python --version` (requires 3.13.2+)
+  - Verify all dependencies are installed
+  - Check logs in `logs/edurasync.log`
+
+- **Database Errors**:
+  - Database file: `edurasync.db` in project root
+  - Check file permissions
+  - Verify database is not corrupted
+
+### Build Issues
+
+- **PyInstaller Fails**:
+  - Ensure all dependencies are installed
+  - Check `edurasync.spec` file is valid
+  - Review build logs for missing modules
+
+## Development
+
+### Setting Up Development Environment
+
+1. Clone and install dependencies (see Installation)
+2. Install development dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. Run in development mode:
+   ```bash
+   python main.py
+   ```
+
+### Code Structure
+
+- **Models**: Database models in `interfaces/database/models.py`
+- **Repositories**: Data access layer in `interfaces/database/repository.py`
+- **Services**: Business logic in `services/`
+- **GUI**: PySide6 components in `interfaces/gui_pyside6/`
+
+### Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/your-feature`)
+3. Commit your changes (`git commit -m "Add your feature"`)
+4. Push to the branch (`git push origin feature/your-feature`)
+5. Open a Pull Request
 
 ## License
 
-MIT License. See LICENSE file for details.
+MIT License - see LICENSE file for details
+
+## Developer
+
+**Riajul Kashem** - Software Engineer
+
+- GitHub: [@riajulkashem](https://github.com/riajulkashem)
+- LinkedIn: [riajulkashem](https://linkedin.com/in/riajulkashem)
+
+## Support
+
+For issues, feature requests, or questions:
+- Open an issue on [GitHub Issues](https://github.com/riajulkashem/edura-sync/issues)
+- Check logs in `logs/edurasync.log` for error details
+
+---
+
+**Note**: This application requires a compatible cloud API backend. Ensure your backend implements the required endpoints as described in the API Integration section.
