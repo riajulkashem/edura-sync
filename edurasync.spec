@@ -21,23 +21,82 @@ a = Analysis(
     ["main.py"],
     pathex=[str(project_root)],
     binaries=[],
+    # Explicitly include peewee and playhouse packages
+    includes=['peewee', 'playhouse'],
     datas=[
         # Include assets directory
         (str(project_root / "assets"), "assets"),
     ],
     hiddenimports=[
+        # Application modules
         "core",
+        "core.config",
+        "core.constants",
+        "core.exceptions",
+        "core.operation_manager",
+        "core.utils",
+        "core.validation",
         "interfaces",
         "interfaces.database",
+        "interfaces.database.models",
+        "interfaces.database.repository",
+        "interfaces.database.base_repository",
         "interfaces.gui_pyside6",
+        "interfaces.gui_pyside6.dashboard",
+        "interfaces.gui_pyside6.tray",
+        "interfaces.gui_pyside6.device_management",
+        "interfaces.gui_pyside6.gui_utils",
+        "interfaces.gui_pyside6.ui_utils",
         "services",
+        "services.api_sync",
+        "services.device_manager",
+        "services.device_utils",
+        "services.notification",
+        # Peewee ORM and extensions - collect all submodules
         "peewee",
+        "peewee_migrate",
+        "playhouse",
+        "playhouse.sqlite_ext",
+        "playhouse.migrate",
+        "playhouse.reflection",
+        "playhouse.db_url",
+        # ZK device library
         "zk",
+        # HTTP requests and dependencies
         "requests",
+        "requests.packages",
+        "requests.packages.urllib3",
+        "urllib3",
+        "urllib3.util",
+        "urllib3.contrib",
+        "certifi",
+        "charset_normalizer",
+        "idna",
+        # PySide6 Qt framework - collect all submodules
+        "PySide6",
+        "PySide6.QtCore",
+        "PySide6.QtGui",
+        "PySide6.QtWidgets",
+        "PySide6.QtNetwork",
+        # Logging
+        "loguru",
+        # Notifications
+        "notifypy",
+        # Date/time
+        "tzlocal",
+        # Cryptography (for some dependencies)
+        "cryptography",
+        "cryptography.hazmat",
+        "cryptography.hazmat.primitives",
+        "cffi",
+        # Standard library modules that might be missed
+        "sqlite3",
+        "logging",
+        "logging.handlers",
     ],
-    hookspath=[],
+    hookspath=[str(project_root / "hooks")],  # Use custom hooks directory
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=[],  # Runtime hooks disabled - using build-time collection instead
     excludes=[
         "matplotlib",
         "numpy",
@@ -70,7 +129,7 @@ exe = EXE(
     upx=False,  # Disable UPX compression (requires UPX to be installed)
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,
+    console=True,  # Temporarily enable console to see errors
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

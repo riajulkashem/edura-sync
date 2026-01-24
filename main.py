@@ -5,8 +5,23 @@ import argparse
 from pathlib import Path
 from datetime import datetime, time as dt_time
 from logging.handlers import RotatingFileHandler
-import peewee
 import sqlite3
+
+# Import peewee early to ensure it's available
+try:
+    import peewee
+except ImportError as e:
+    # If running from PyInstaller bundle, try to fix the path
+    if hasattr(sys, '_MEIPASS'):
+        import importlib.util
+        peewee_path = os.path.join(sys._MEIPASS, 'peewee')
+        if os.path.exists(peewee_path):
+            sys.path.insert(0, sys._MEIPASS)
+            import peewee
+        else:
+            raise ImportError(f"peewee module not found. _MEIPASS: {sys._MEIPASS}, Error: {e}")
+    else:
+        raise
 
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QTimer, QTime
