@@ -82,8 +82,8 @@ jobs:
           # Verify peewee can be imported before building
           python -c "import peewee; print('peewee imported successfully')"
           
-          # Use --collect-all and --collect-submodules to ensure all dependencies are included
-          pyinstaller --clean --noconfirm --collect-all peewee --collect-all PySide6 --collect-submodules peewee --collect-submodules playhouse edurasync.spec
+          # Build using spec file (all collection options are in the spec file)
+          pyinstaller --clean --noconfirm edurasync.spec
           if ($LASTEXITCODE -ne 0) {
             Write-Host "PyInstaller failed with exit code $LASTEXITCODE"
             exit $LASTEXITCODE
