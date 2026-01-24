@@ -5,7 +5,14 @@ import os
 from pathlib import Path
 
 # Get the project root directory
-project_root = Path(__file__).parent.absolute()
+# __file__ may not be available in PyInstaller context, so use current working directory
+# PyInstaller should be run from the project root
+try:
+    project_root = Path(__file__).parent.absolute()
+except NameError:
+    # Fallback to current working directory if __file__ is not available
+    project_root = Path(os.getcwd()).absolute()
+
 sys.path.append(str(project_root))
 
 block_cipher = None
