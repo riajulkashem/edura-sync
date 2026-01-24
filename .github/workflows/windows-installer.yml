@@ -2,14 +2,17 @@ name: Build Windows Installer
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, headless ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, headless ]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build-windows:
-    runs-on: windows-2019
+    runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -43,123 +46,94 @@ jobs:
 
       - name: Build with PyInstaller
         run: |
-          pyinstaller --clean --noconfirm primesync.spec
-
-      - name: Verify PyInstaller output
-        run: |
-          dir dist\PrimeSyncTrayApp || (echo "PyInstaller output missing" && exit 1)
+          pyinstaller --clean --noconfirm edurasync.spec
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "PyInstaller failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
 
       - name: Create credits file
         run: |
           echo "PrimeSync - Attendance Synchronization System" | Out-File -FilePath CREDITS.txt -Encoding utf8
           echo "Developed by Riajul Kashem, Software Engineer" | Out-File -FilePath CREDITS.txt -Append -Encoding utf8
-          echo "GitHub: https://github.com/riajulkashem" | Out-File -FilePath CREDITS.txt -Append -Encoding utf8
 
       - name: Create Inno Setup installer
         run: |
-          echo "Creating Inno Setup script..."
           $innoScript = @"
-          #define MyAppName "PrimeSync"
+          #define MyAppName "EduraSync"
           #define MyAppVersion "${{ env.APP_VERSION }}"
           #define MyAppPublisher "Riajul Kashem"
-          #define MyAppURL "https://github.com/riajulkashem/prime-sync"
-          #define MyAppExeName "PrimeSyncTrayApp.exe"
+          #define MyAppExeName "EduraSync.exe"
           
           [Setup]
           AppId={{EA3FCF1E-0EB9-4DEA-AB7A-ADE3D2B7AAF8}
           AppName={#MyAppName}
           AppVersion={#MyAppVersion}
           AppPublisher={#MyAppPublisher}
-          AppPublisherURL={#MyAppURL}
-          AppSupportURL={#MyAppURL}
-          AppUpdatesURL={#MyAppURL}
           DefaultDirName={autopf}\{#MyAppName}
-          DefaultGroupName={#MyAppName}
-          DisableProgramGroupPage=yes
-          LicenseFile=LICENSE
-          InfoBeforeFile=CREDITS.txt
           OutputDir=installer
           OutputBaseFilename={#MyAppName}-Setup-{#MyAppVersion}
-          SetupIconFile=assets\icon.ico
           Compression=lzma
           SolidCompression=yes
           WizardStyle=modern
           PrivilegesRequired=admin
           
-          [Languages]
-          Name: "english"; MessagesFile: "compiler:Default.isl"
-          
-          [Tasks]
-          Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
-          Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked; OnlyBelowVersion: 6.1; Check: not IsAdminInstallMode
-          
           [Files]
-          Source: "dist\PrimeSyncTrayApp\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-          Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
-          Source: "CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
-          
-          [Dirs]
-          Name: "{app}\data"; Permissions: users-modify
-          Name: "{app}\logs"; Permissions: users-modify
+          Source: "dist\EduraSync\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
           
           [Icons]
           Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-          Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
           Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
-          Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: quicklaunchicon
+          
+          [Tasks]
+          Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
           
           [Run]
           Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
-          
-          [Registry]
-          Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "PrimeSync"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue
           "@
           
           $innoScript | Out-File -FilePath ./installer.iss -Encoding utf8
           
-          # Debug: List files
-          dir .
-          dir assets
-          dir dist\PrimeSyncTrayApp
-          
-          # Create LICENSE file
-          if (-not (Test-Path LICENSE)) {
-            "MIT License - Attendance synchronization system by Riajul Kashem" | Out-File -FilePath LICENSE -Encoding utf8
-          }
-          
-          # Convert PNG to ICO
-          if (-not (Test-Path assets/icon.ico)) {
-            mkdir -Force assets
-            if (-not (Test-Path assets/icon.png)) {
-              throw "assets/icon.png not found"
-            }
-            pip install pillow
-            python -c "from PIL import Image; img = Image.open('assets/icon.png'); img.save('assets/icon.ico')"
-          }
+          # Create placeholder files if missing to prevent Inno Setup errors
+          if (-not (Test-Path LICENSE)) { "MIT License" | Out-File -FilePath LICENSE }
+          if (-not (Test-Path README.md)) { "# EduraSync" | Out-File -FilePath README.md }
           
           # Run Inno Setup compiler
           mkdir -Force installer
           & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' installer.iss
 
-      - name: Debug installer files
+      - name: Generate Checksum
+        shell: pwsh
         run: |
-          dir installer
+          $installerPath = "installer/EduraSync-Setup-${{ env.APP_VERSION }}.exe"
+          if (Test-Path $installerPath) {
+            $hash = (Get-FileHash $installerPath -Algorithm SHA256).Hash
+            echo "SHA256: $hash"
+            $hash | Out-File -FilePath "$installerPath.sha256"
+            Write-Host "Checksum generated at $installerPath.sha256"
+          } else {
+            Write-Host "Installer not found, skipping checksum."
+            exit 1
+          }
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PrimeSync-Windows-Installer
-          path: installer/PrimeSync-Setup-${{ env.APP_VERSION }}.exe
+          name: EduraSync-Windows-Installer
+          path: |
+            installer/EduraSync-Setup-${{ env.APP_VERSION }}.exe
+            installer/EduraSync-Setup-${{ env.APP_VERSION }}.exe.sha256
 
       - name: Create Release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        id: create_release
         uses: softprops/action-gh-release@v2
         with:
-          name: PrimeSync v${{ env.APP_VERSION }}
+          name: EduraSync v${{ env.APP_VERSION }}
           tag_name: v${{ env.APP_VERSION }}
           draft: false
           prerelease: false
-          files: ./installer/PrimeSync-Setup-${{ env.APP_VERSION }}.exe
+          files: |
+            installer/EduraSync-Setup-${{ env.APP_VERSION }}.exe
+            installer/EduraSync-Setup-${{ env.APP_VERSION }}.exe.sha256
         env:
-          GITHUB_TOKEN: ${{ secrets.TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

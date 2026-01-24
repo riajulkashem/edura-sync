@@ -235,6 +235,12 @@ __pycache__/
 
 *.db
 primesync.db
+primesync.db-shm
+primesync.db-wal
+edurasync.db
+edurasync.db-shm
+edurasync.db-wal
+:memory:
 
 # Distribution / packaging
 .Python

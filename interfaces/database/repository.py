@@ -1,7 +1,7 @@
 from peewee import DoesNotExist, fn
 from interfaces.database.models import Device, User, Attendance, Settings
 from interfaces.database.base_repository import BaseRepository
-from core.exceptions import DatabaseError
+from core.exceptions import DatabaseError  # noqa: F401
 from typing import List, Dict, Optional
 import logging
 
@@ -20,12 +20,17 @@ class DeviceRepository(BaseRepository):
         Raises:
             DatabaseError: If a database error occurs.
         """
-        try:
-            return self.model.get(self.model.ip_address == ip_address)
-        except DoesNotExist:
-            return None
-        except Exception as e:
-            raise DatabaseError(f"Error getting device by IP {ip_address}: {e}")
+        return self.get(ip_address=ip_address)
+
+    def get_by_cloud_id(self, cloud_id: int) -> Optional[Device]:
+        """
+        Get device by cloud_id field.
+        """
+        return self.get(cloud_id=cloud_id)
+
+    def clear_cache(self):
+        """Clear the device cache."""
+        self._cache.clear()
 
     def get_online_devices(self) -> List[Device]:
         """
@@ -34,14 +39,11 @@ class DeviceRepository(BaseRepository):
         Returns:
             List of online devices
         """
-        try:
-            return list(
-                self.model.select()
-                .where(self.model.status == "Online")
-                .order_by(self.model.ip_address)
-            )
-        except Exception as e:
-            raise DatabaseError(f"Error getting online devices: {e}")
+        return list(
+            self.model.select()
+            .where(self.model.status == "Online")
+            .order_by(self.model.ip_address)
+        )
 
     def get_device_stats(self) -> Dict[str, int]:
         """
@@ -50,28 +52,25 @@ class DeviceRepository(BaseRepository):
         Returns:
             Dictionary with device counts by status
         """
-        try:
-            stats = (
-                self.model.select(
-                    self.model.status,
-                    fn.COUNT(self.model.id).alias('count')
-                )
-                .group_by(self.model.status)
+        stats = (
+            self.model.select(
+                self.model.status,
+                fn.COUNT(self.model.id).alias('count')
             )
-            
-            result = {"total": 0, "online": 0, "offline": 0, "error": 0}
-            for stat in stats:
-                result["total"] += stat.count
-                if stat.status.lower() == "online":
-                    result["online"] = stat.count
-                elif stat.status.lower() == "offline":
-                    result["offline"] = stat.count
-                elif stat.status.lower() == "error":
-                    result["error"] = stat.count
-                    
-            return result
-        except Exception as e:
-            raise DatabaseError(f"Error getting device stats: {e}")
+            .group_by(self.model.status)
+        )
+        
+        result = {"total": 0, "online": 0, "offline": 0, "error": 0}
+        for stat in stats:
+            result["total"] += stat.count
+            if stat.status.lower() == "online":
+                result["online"] = stat.count
+            elif stat.status.lower() == "offline":
+                result["offline"] = stat.count
+            elif stat.status.lower() == "error":
+                result["error"] = stat.count
+                
+        return result
 
     def update_device_status_bulk(self, device_statuses: Dict[int, str]) -> int:
         """
@@ -83,16 +82,13 @@ class DeviceRepository(BaseRepository):
         Returns:
             int: Number of devices updated
         """
-        try:
-            updated_count = 0
-            for device_id, status in device_statuses.items():
-                updated_count += self.update_bulk(
-                    data={"status": status},
-                    ids=[device_id]
-                )
-            return updated_count
-        except Exception as e:
-            raise DatabaseError(f"Error updating device statuses: {e}")
+        updated_count = 0
+        for device_id, status in device_statuses.items():
+            updated_count += self.update_bulk(
+                data={"status": status},
+                ids=[device_id]
+            )
+        return updated_count
 
 
 class UserRepository(BaseRepository):
@@ -102,27 +98,47 @@ class UserRepository(BaseRepository):
         super().__init__(User)
         self.logger = logging.getLogger(__name__)
         self._user_cache = {}  # Cache for user lookups
+        self._cache_timestamps = {}  # Track when entries were cached
+        self._cache_ttl = 300  # 5-minute TTL in seconds
+        self._max_cache_size = 1000  # Maximum cache entries
     
     def get_by_user_id(self, user_id: str) -> Optional[User]:
         """
         Get user by user_id field with index optimization.
-        Uses caching for frequently accessed users.
+        Uses caching with TTL for frequently accessed users.
         Raises:
             DatabaseError: If a database error occurs.
         """
+        from datetime import datetime
+        
         # Check cache first
         if user_id in self._user_cache:
-            return self._user_cache[user_id]
+            # Check if entry is still valid (within TTL)
+            cache_time = self._cache_timestamps.get(user_id)
+            if cache_time and (datetime.now() - cache_time).total_seconds() < self._cache_ttl:
+                return self._user_cache[user_id]
+            else:
+                # Expired, remove from cache
+                del self._user_cache[user_id]
+                del self._cache_timestamps[user_id]
+        
+        # Fetch from database
+        user = self.get(user_id=user_id)
+        
+        # Cache the result
+        if user:
+            # Enforce max cache size
+            if len(self._user_cache) >= self._max_cache_size:
+                # Remove oldest entry
+                if self._cache_timestamps:
+                    oldest_key = min(self._cache_timestamps, key=self._cache_timestamps.get)
+                    del self._user_cache[oldest_key]
+                    del self._cache_timestamps[oldest_key]
             
-        try:
-            user = self.model.get(self.model.user_id == user_id)
-            # Cache the result
             self._user_cache[user_id] = user
-            return user
-        except DoesNotExist:
-            return None
-        except Exception as e:
-            raise DatabaseError(f"Error getting user by user_id {user_id}: {e}")
+            self._cache_timestamps[user_id] = datetime.now()
+        
+        return user
 
     def get_unsaved_to_device(self, device_id: Optional[int] = None) -> List[User]:
         """
@@ -135,27 +151,73 @@ class UserRepository(BaseRepository):
         Returns:
             List of users not saved to device
         """
-        try:
-            query = self.model.select().where(self.model.saved_to_device == False)
-            if device_id:
-                query = query.where(self.model.device_id == device_id)
-            return list(query)
-        except Exception as e:
-            raise DatabaseError(f"Error getting unsaved users: {e}")
+        query = self.model.select().where(~self.model.saved_to_device)
+        if device_id:
+            query = query.where(self.model.device_id == device_id)
+        return list(query)
 
     def get_by_device(self, device_id: int) -> List[User]:
         """
         Get all users for a specific device.
         Uses device_id index for performance.
         """
-        try:
-            return list(
-                self.model.select()
-                .where(self.model.device_id == device_id)
-                .order_by(self.model.name)
+        return list(
+            self.model.select()
+            .where(self.model.device_id == device_id)
+            .order_by(self.model.name)
+        )
+
+    def get_user_stats(self) -> Dict[str, int]:
+        """
+        Get user statistics efficiently.
+        
+        Returns:
+            Dictionary with user counts by type and status
+        """
+        # Get total users
+        total_users = self.model.select().count()
+        
+        # Get users by type
+        user_types = (
+            self.model.select(
+                self.model.user_type,
+                fn.COUNT(self.model.id).alias('count')
             )
-        except Exception as e:
-            raise DatabaseError(f"Error getting users by device {device_id}: {e}")
+            .group_by(self.model.user_type)
+        )
+        
+        # Get users by saved status
+        saved_count = (
+            self.model.select(fn.COUNT(self.model.id))
+            .where(self.model.saved_to_device)
+            .scalar()
+        )
+        
+        unsaved_count = (
+            self.model.select(fn.COUNT(self.model.id))
+            .where(~self.model.saved_to_device)
+            .scalar()
+        )
+        
+        result = {
+            "total": total_users,
+            "students": 0,
+            "teachers": 0,
+            "staff": 0,
+            "saved_to_device": saved_count or 0,
+            "unsaved_to_device": unsaved_count or 0
+        }
+        
+        # Count by user type
+        for user_type in user_types:
+            if user_type.user_type == 'STUDENT':
+                result["students"] = user_type.count
+            elif user_type.user_type == 'TEACHER':
+                result["teachers"] = user_type.count
+            elif user_type.user_type == 'STAFF':
+                result["staff"] = user_type.count
+        
+        return result
 
     def mark_as_saved_to_device(self, user_ids: List[int]) -> int:
         """
@@ -167,17 +229,26 @@ class UserRepository(BaseRepository):
         Returns:
             int: Number of users updated
         """
-        try:
-            return self.update_bulk(
-                data={"saved_to_device": True},
-                ids=user_ids
-            )
-        except Exception as e:
-            raise DatabaseError(f"Error marking users as saved: {e}")
+        return self.update_bulk(
+            data={"saved_to_device": True},
+            ids=user_ids
+        )
 
+    def count_by_device(self, device: Device) -> int:
+        """
+        Count all users associated with a device.
+        Returns total users for the device, regardless of saved_to_device status.
+        """
+        return (
+            self.model.select()
+            .where(self.model.device == device)
+            .count()
+        )
+    
     def clear_cache(self):
-        """Clear the user cache."""
+        """Clear the user cache and timestamps."""
         self._user_cache.clear()
+        self._cache_timestamps.clear()
 
 
 class AttendanceRepository(BaseRepository):
@@ -197,14 +268,11 @@ class AttendanceRepository(BaseRepository):
         Raises:
             DatabaseError: If a database error occurs.
         """
-        try:
-            return list(
-                self.model.select()
-                .where(self.model.posted == False)
-                .order_by(self.model.timestamp.desc())
-            )
-        except Exception as e:
-            raise DatabaseError(f"Error getting pending attendance: {e}")
+        return list(
+            self.model.select()
+            .where(~self.model.posted)
+            .order_by(self.model.timestamp.desc())
+        )
 
     def get_pending_count(self) -> int:
         """
@@ -212,14 +280,11 @@ class AttendanceRepository(BaseRepository):
         Returns:
             int: Number of pending records
         """
-        try:
-            return (
-                self.model.select(fn.COUNT(self.model.id))
-                .where(self.model.posted == False)
-                .scalar()
-            )
-        except Exception as e:
-            raise DatabaseError(f"Error counting pending attendance: {e}")
+        return (
+            self.model.select(fn.COUNT(self.model.id))
+            .where(~self.model.posted)
+            .scalar()
+        )
 
     def get_by_device_user_timestamp(self, device, user, timestamp) -> Optional[Attendance]:
         """
@@ -228,13 +293,12 @@ class AttendanceRepository(BaseRepository):
         """
         try:
             return self.model.get(
+                (self.model.device == device) &
                 (self.model.user == user) & 
                 (self.model.timestamp == timestamp)
             )
         except DoesNotExist:
             return None
-        except Exception as e:
-            raise DatabaseError(f"Error getting attendance by device/user/timestamp: {e}")
 
     def mark_as_posted(self, attendance_ids: List[int]) -> int:
         """
@@ -246,48 +310,91 @@ class AttendanceRepository(BaseRepository):
         Returns:
             int: Number of records updated
         """
-        try:
-            result = self.update_bulk(
-                data={"posted": True},
-                ids=attendance_ids
-            )
-            # Clear cache when data changes
-            self._pending_cache = None
-            return result
-        except Exception as e:
-            raise DatabaseError(f"Error marking attendance as posted: {e}")
+        result = self.update_bulk(
+            data={"posted": True},
+            ids=attendance_ids
+        )
+        # Clear cache when data changes
+        self._pending_cache = None
+        return result
 
     def cloud_format(self) -> List[Dict]:
         """
         Format attendance data for cloud API with optimized query.
-        Uses joins to reduce database queries.
+        Uses joins to reduce database queries and includes readable status/punch values.
         Raises:
             DatabaseError: If a database error occurs.
         """
-        try:
-            # Use join to get user data in single query
-            pending_records = (
-                self.model.select(self.model, User)
-                .join(User)
-                .where(self.model.posted == False)
-                .order_by(self.model.timestamp.desc())
-            )
+        # Use join to get user data in single query
+        pending_records = (
+            self.model.select(self.model, User)
+            .join(User)
+            .where(~self.model.posted)
+            .order_by(self.model.timestamp.desc())
+        )
+        
+        formatted_data = []
+        for record in pending_records:
+            user = record.user
+            device = record.device
             
-            formatted_data = []
-            for record in pending_records:
-                formatted_record = {
-                    "id": record.id,
-                    "user_id": record.user.user_id,
-                    "timestamp": record.timestamp.isoformat() if record.timestamp else None,
-                    "status": record.status,
-                    "punch": record.punch,
-                    "uid": record.id
-                }
-                formatted_data.append(formatted_record)
-                
-            return formatted_data
-        except Exception as e:
-            raise DatabaseError(f"Error formatting attendance data: {e}")
+            # Use cloud_id for device, fallback to local id if cloud_id is not set
+            device_id = device.cloud_id if device.cloud_id is not None else device.id
+            if device.cloud_id is None:
+                self.logger.warning(
+                    f"Device {device.ip_address} (id={device.id}) has no cloud_id. Using local id {device.id}."
+                )
+            
+            # Format timestamp safely
+            ts = record.timestamp
+            if isinstance(ts, str):
+                try:
+                    from dateutil import parser
+                    ts = parser.parse(ts)
+                except ImportError:
+                    from datetime import datetime
+                    try:
+                        ts = datetime.fromisoformat(ts.split('.')[0]) # Basic fallback
+                    except Exception:
+                        pass
+
+            formatted_record = {
+                "device": device_id,
+                "user_id": user.user_id,  # This should be the cloud ID (numeric string like "7596")
+                "timestamp": ts.strftime('%Y-%m-%d %H:%M:%S'),
+                "status": str(record.status),
+                "punch": str(record.punch),
+                "is_student": user.user_type == 'STUDENT',
+                "is_teacher": user.user_type == 'TEACHER',
+                "is_staff": user.user_type == 'STAFF',
+                # Internal ID for post-processing
+                "id": record.id
+            }
+            self.logger.debug(f"Formatted attendance record: {formatted_record}")
+            formatted_data.append(formatted_record)
+            
+        return formatted_data
+
+    def cleanup_posted_attendance(self, days_old=1) -> int:
+        """
+        Delete posted attendance records older than N days.
+        Args:
+            days_old: Number of days to keep records for reference.
+        Returns:
+            int: Number of records deleted.
+        """
+        from datetime import datetime, timedelta
+        cutoff = datetime.now() - timedelta(days=days_old)
+        
+        deleted = (
+            self.model.delete()
+            .where(
+                (self.model.posted) & 
+                (self.model.timestamp < cutoff)
+            )
+            .execute()
+        )
+        return deleted
 
 
 class SettingsRepository(BaseRepository):
@@ -308,13 +415,10 @@ class SettingsRepository(BaseRepository):
         if self._settings_cache:
             return self._settings_cache
             
-        try:
-            settings = self.get()
-            # Cache the result
-            self._settings_cache = settings
-            return settings
-        except Exception as e:
-            raise DatabaseError(f"Error getting settings: {e}")
+        settings = self.get()
+        # Cache the result
+        self._settings_cache = settings
+        return settings
 
     def save_settings(self, **data):
         """
@@ -323,19 +427,17 @@ class SettingsRepository(BaseRepository):
         Raises:
             DatabaseError: If a database error occurs.
         """
-        from datetime import datetime
-        try:
-            settings = self.get_settings()
-            if settings:
-                result = self.update(settings, **data)
-            else:
-                # Ensure created_at and updated_at are set for new records
-                data['created_at'] = data.get('created_at', datetime.now())
-                data['updated_at'] = data.get('updated_at', datetime.now())
-                result = self.create(**data)
-            
-            # Clear cache when settings are updated
-            self._settings_cache = None
-            return result
-        except Exception as e:
-            raise DatabaseError(f"Error saving settings: {e}")
+        settings = self.get_settings()
+        if settings:
+            result = self.update(settings, **data)
+        else:
+            # Remove timestamp fields from data if they're None, let the model handle them
+            if 'created_at' in data and data['created_at'] is None:
+                del data['created_at']
+            if 'updated_at' in data and data['updated_at'] is None:
+                del data['updated_at']
+            result = self.create(**data)
+        
+        # Clear cache when settings are updated
+        self._settings_cache = None
+        return result
