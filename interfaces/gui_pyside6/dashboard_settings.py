@@ -4,12 +4,15 @@ Settings tab for the EduraSync dashboard using PySide6.
 """
 
 import logging
+import sys
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit,
     QPushButton, QLabel, QTimeEdit, QMessageBox, QGroupBox, QInputDialog,
-    QComboBox
+    QComboBox, QToggleButton
 )
 from PySide6.QtCore import QTime
+
+from services.service_manager import ServiceManager
 
 from core.constants import DEFAULT_SETTING, APP_NAME
 from core.exceptions import ValidationError
@@ -23,6 +26,189 @@ class DashboardSettings:
         self.dashboard_gui = dashboard_gui
         self.logger = logging.getLogger(__name__)
         self.form_fields = {}
+        self.service_manager = None
+        self.service_status_label = None
+
+    def _create_service_management_group(self) -> QGroupBox:
+        """Create the service management group for Windows."""
+        service_group = QGroupBox("⚙️  Background Service (Windows)")
+        service_layout = QVBoxLayout(service_group)
+        
+        # Info label
+        info_label = QLabel(
+            "Run EduraSync as a Windows Service to sync attendance in the background "
+            "even when the app is closed.\nYou will be prompted for administrator permission when enabling/disabling."
+        )
+        info_label.setStyleSheet("color: #666; font-size: 10pt;")
+        info_label.setWordWrap(True)
+        service_layout.addWidget(info_label)
+        
+        service_layout.addSpacing(10)
+        
+        # Service status and control
+        control_layout = QHBoxLayout()
+        
+        # Status label
+        self.service_status_label = QLabel("🔄 Checking status...")
+        self.service_status_label.setStyleSheet("font-weight: bold; min-width: 200px;")
+        control_layout.addWidget(self.service_status_label, 2)
+        
+        # Enable/Disable button
+        self.service_toggle_btn = QPushButton("Enable Service")
+        self.service_toggle_btn.setMinimumWidth(120)
+        self.service_toggle_btn.clicked.connect(self._toggle_service)
+        control_layout.addWidget(self.service_toggle_btn, 1)
+        
+        # Refresh status button
+        refresh_status_btn = QPushButton("🔄 Refresh")
+        refresh_status_btn.setMaximumWidth(80)
+        refresh_status_btn.clicked.connect(self._update_service_status)
+        control_layout.addWidget(refresh_status_btn)
+        
+        service_layout.addLayout(control_layout)
+        
+        # Update initial status
+        self._update_service_status()
+        
+        return service_group
+    
+    def _update_service_status(self):
+        """Update the service status label and button state."""
+        if not self.service_manager:
+            return
+        
+        status = self.service_manager.get_service_status()
+        
+        if status == "not_installed":
+            self.service_status_label.setText("❌ Service: Not Installed")
+            self.service_status_label.setStyleSheet("color: #cc0000; font-weight: bold;")
+            self.service_toggle_btn.setText("✅ Enable Service")
+            self.service_toggle_btn.setStyleSheet("")
+        elif status == "running":
+            self.service_status_label.setText("✅ Service: Running")
+            self.service_status_label.setStyleSheet("color: #00aa00; font-weight: bold;")
+            self.service_toggle_btn.setText("⏹️  Disable Service")
+            self.service_toggle_btn.setStyleSheet("background-color: #fff3f3; color: #cc0000;")
+        elif status == "stopped":
+            self.service_status_label.setText("⚠️  Service: Stopped")
+            self.service_status_label.setStyleSheet("color: #ff9900; font-weight: bold;")
+            self.service_toggle_btn.setText("▶️  Start Service")
+            self.service_toggle_btn.setStyleSheet("background-color: #f3fff3; color: #00aa00;")
+        else:
+            self.service_status_label.setText("❓ Service: Unknown Status")
+            self.service_status_label.setStyleSheet("color: #666; font-weight: bold;")
+            self.service_toggle_btn.setText("Enable Service")
+            self.service_toggle_btn.setEnabled(False)
+    
+    def _toggle_service(self):
+        """Toggle service installation/removal."""
+        if not self.service_manager:
+            return
+        
+        status = self.service_manager.get_service_status()
+        
+        if status == "not_installed":
+            # Install service
+            self._install_service()
+        elif status in ["running", "stopped"]:
+            # Uninstall service
+            self._uninstall_service()
+    
+    def _install_service(self):
+        """Install the Windows service."""
+        # Confirm with user
+        result = GUIHelpers.show_message(
+            self.dashboard_gui.main_window,
+            "Enable Service",
+            "This will install EduraSync as a Windows Service.\n\n"
+            "You will be prompted for administrator permission.\n"
+            "The service will sync attendance data in the background.\n\n"
+            "Continue?",
+            "question"
+        )
+        
+        # Check if user clicked Yes (exec returns 16384 for Yes, 65536 for No)
+        if result != QMessageBox.Yes:
+            return
+        
+        # Disable button during operation
+        self.service_toggle_btn.setEnabled(False)
+        original_text = self.service_toggle_btn.text()
+        self.service_toggle_btn.setText("⏳ Installing...")
+        
+        try:
+            success, message = self.service_manager.install_service()
+            
+            if success:
+                GUIHelpers.show_message(
+                    self.dashboard_gui.main_window,
+                    "Service Installed",
+                    message,
+                    "info"
+                )
+                self.logger.info(f"Service installation: {message}")
+            else:
+                GUIHelpers.show_message(
+                    self.dashboard_gui.main_window,
+                    "Service Installation Failed",
+                    message,
+                    "warning"
+                )
+                self.logger.error(f"Service installation failed: {message}")
+        
+        finally:
+            self.service_toggle_btn.setEnabled(True)
+            self.service_toggle_btn.setText(original_text)
+            # Refresh status
+            self._update_service_status()
+    
+    def _uninstall_service(self):
+        """Uninstall the Windows service."""
+        # Confirm with user
+        result = GUIHelpers.show_message(
+            self.dashboard_gui.main_window,
+            "Disable Service",
+            "This will uninstall the EduraSync Windows Service.\n\n"
+            "You will be prompted for administrator permission.\n"
+            "Attendance syncing will no longer happen in the background.\n\n"
+            "Continue?",
+            "question"
+        )
+        
+        # Check if user clicked Yes
+        if result != QMessageBox.Yes:
+            return
+        
+        # Disable button during operation
+        self.service_toggle_btn.setEnabled(False)
+        original_text = self.service_toggle_btn.text()
+        self.service_toggle_btn.setText("⏳ Removing...")
+        
+        try:
+            success, message = self.service_manager.uninstall_service()
+            
+            if success:
+                GUIHelpers.show_message(
+                    self.dashboard_gui.main_window,
+                    "Service Removed",
+                    message,
+                    "info"
+                )
+                self.logger.info(f"Service removal: {message}")
+            else:
+                GUIHelpers.show_message(
+                    self.dashboard_gui.main_window,
+                    "Service Removal Failed",
+                    message,
+                    "warning"
+                )
+                self.logger.error(f"Service removal failed: {message}")
+        
+        finally:
+            self.service_toggle_btn.setEnabled(True)
+            self.service_toggle_btn.setText(original_text)
+            # Refresh status
+            self._update_service_status()
 
     def create_settings_tab(self, tab_widget):
         """Create the settings tab."""
@@ -73,6 +259,12 @@ class DashboardSettings:
         settings_layout.addLayout(buttons_layout)
 
         layout.addWidget(settings_group)
+        
+        # --- SERVICE MANAGEMENT SECTION (Windows only) ---
+        if sys.platform.startswith('win'):
+            self.service_manager = ServiceManager()
+            service_group = self._create_service_management_group()
+            layout.addWidget(service_group)
         
         # --- MAINTENANCE SECTION ---
         maint_group = QGroupBox("🔧 Advanced Maintenance")
