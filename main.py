@@ -60,12 +60,16 @@ def setup_early_logging():
         file_handler = None
         print(f"WARNING: Could not set up file logging: {e}", file=sys.stderr)
     
-    # Always set up console handler
-    console_handler = logging.StreamHandler(sys.stderr)
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(
-        logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-    )
+    # Set up console handler ONLY when running from source (not in frozen/bundled app)
+    # In bundled mode, keep output in file only to avoid PowerShell window
+    if not getattr(sys, "frozen", False):
+        console_handler = logging.StreamHandler(sys.stderr)
+        console_handler.setLevel(logging.INFO)
+        console_handler.setFormatter(
+            logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+        )
+    else:
+        console_handler = None
     
     # Configure root logger
     root_logger = logging.getLogger()
@@ -73,7 +77,8 @@ def setup_early_logging():
     root_logger.handlers.clear()  # Clear any existing handlers
     if file_handler:
         root_logger.addHandler(file_handler)
-    root_logger.addHandler(console_handler)
+    if console_handler:
+        root_logger.addHandler(console_handler)
     
     # Log the log file location
     logger = logging.getLogger(__name__)
