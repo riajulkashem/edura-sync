@@ -1,183 +1,136 @@
 # core/config.py
+"""Application configuration management."""
 import logging
 import os
 import sys
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
+
 from core.constants import APP_VERSION
 
 
-class Singleton:
-    """Implements the Singleton pattern to ensure a single instance of a class."""
+class Config:
+    """
+    Singleton configuration class managing application paths and settings.
+    Supports both bundled (PyInstaller) and source execution contexts.
+    """
 
     _instance = None
 
-    def __new__(cls, *args, **kwargs):
-        if not cls._instance:
+    def __new__(cls):
+        """Implement singleton pattern."""
+        if cls._instance is None:
             cls._instance = super().__new__(cls)
+            cls._instance._initialize()
         return cls._instance
 
-
-class Config(Singleton):
-    """
-    Singleton configuration class for managing application paths and settings.
-    Handles paths for logs, database, and assets, with support for bundled (PyInstaller) and source execution.
-    """
-
-    def __init__(self):
-        """Initialize configuration, setting up paths and logging."""
-        if hasattr(self, "_initialized"):  # Prevent re-initialization in Singleton
-            return
-        self._initialized = True
-
-        # Determine base paths based on execution context (bundled or source)
-        self._set_base_paths()
-        self._set_data_paths()
-        self._set_icon_path()
-
-        # Define database and log file paths
-        self.LOG_FILE: Path = self.DATA_DIR / "logs" / "edurasync.log"
-        self.DB_NAME: str = "edurasync.db"
-        self.DB_PATH: Path = self.DATA_DIR / self.DB_NAME
-
-        # Ensure required directories exist (including logs directory)
-        self.ensure_dirs()
-
-        # Configure logging AFTER paths are set up
-        self._setup_logging()
+    def _initialize(self):
+        """Initialize configuration paths and logging (called once)."""
         self.logger = logging.getLogger(__name__)
+        self._setup_base_paths()
+        self._setup_data_paths()
+        self._setup_icon_paths()
+        self._ensure_directories()
+        self._setup_logging()
 
-        # Validate icon path
-        self._validate_icon_path()
-        self.logger.info(f"Resolved ICON_PATH: {self.ICON_PATH}")
-        self.logger.info(f"Log file location: {self.LOG_FILE}")
+    def _setup_base_paths(self) -> None:
+        """Determine base directory based on execution context (bundled vs source)."""
+        if getattr(sys, "frozen", False):
+            # Running as PyInstaller bundle
+            self.BASE_DIR = Path(sys._MEIPASS)
+            self.INSTALL_DIR = Path("C:/Program Files/EduraSync")
+        else:
+            # Running from source
+            self.BASE_DIR = Path(__file__).parent.parent
+            self.INSTALL_DIR = self.BASE_DIR
+
+    def _setup_data_paths(self) -> None:
+        """Set DATA_DIR with fallback strategy: try INSTALL_DIR/data, then platform-specific user dir."""
+        # Try INSTALL_DIR/data first
+        preferred = self.INSTALL_DIR / "data"
+        if self._test_writable_dir(preferred):
+            self.DATA_DIR = preferred
+            return
+
+        # Fall back to platform-specific user data directory
+        if sys.platform.startswith("win"):
+            self.DATA_DIR = Path(os.getenv("APPDATA", Path.home() / "AppData" / "Roaming")) / "EduraSync"
+        elif sys.platform == "darwin":
+            self.DATA_DIR = Path.home() / "Library" / "Application Support" / "EduraSync"
+        else:  # Linux and others
+            xdg = os.getenv("XDG_DATA_HOME")
+            self.DATA_DIR = Path(xdg) / "EduraSync" if xdg else Path.home() / ".local" / "share" / "EduraSync"
+
+        # Final fallback: current working directory
+        if not self._test_writable_dir(self.DATA_DIR):
+            self.DATA_DIR = Path.cwd() / "data"
+
+    def _setup_icon_paths(self) -> None:
+        """Set ICON_PATH with fallback from INSTALL_DIR to BASE_DIR."""
+        for base_dir in [self.INSTALL_DIR, self.BASE_DIR]:
+            icon_path = base_dir / "assets" / "icon.png"
+            if icon_path.exists() and os.access(str(icon_path), os.R_OK):
+                self.ICON_PATH = icon_path
+                return
+        self.ICON_PATH = None
+
+    def _ensure_directories(self) -> None:
+        """Create required directories."""
+        dirs = [
+            self.DATA_DIR / "logs",
+            self.DATA_DIR,
+        ]
+        for d in dirs:
+            d.mkdir(parents=True, exist_ok=True)
 
     def _setup_logging(self) -> None:
-        """Configure logging to file based on execution context."""
-        from logging.handlers import RotatingFileHandler
-        
-        # Always log to file when installed (frozen) or when running from source
+        """Configure logging with file and console handlers."""
+        # Determine log file path
         if getattr(sys, "frozen", False):
-            # Running as installed application - use LOG_FILE path
             log_file = str(self.LOG_FILE)
         else:
-            # Running from source - use relative path
             log_file = "logs/edurasync.log"
-            # Ensure logs directory exists
-            Path("logs").mkdir(exist_ok=True)
-        
-        # Set up rotating file handler (5 MB max, 5 backup files)
+
+        # File handler (5 MB rotating logs, 5 backups)
         file_handler = RotatingFileHandler(
-            log_file,
-            maxBytes=5*1024*1024,  # 5 MB
-            backupCount=5,
-            encoding='utf-8'
+            log_file, maxBytes=5*1024*1024, backupCount=5, encoding='utf-8'
         )
-        file_handler.setLevel(logging.INFO)
-        file_handler.setFormatter(
-            logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-        )
-        
-        # Also add console handler for immediate feedback
+        file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+
+        # Console handler
         console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.INFO)
-        console_handler.setFormatter(
-            logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-        )
-        
-        # Configure root logger with both handlers
+        console_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+
+        # Root logger
         root_logger = logging.getLogger()
         root_logger.setLevel(logging.INFO)
         root_logger.addHandler(file_handler)
         root_logger.addHandler(console_handler)
 
-    def _set_base_paths(self) -> None:
-        """Set BASE_DIR and INSTALL_DIR based on whether running as bundled or source."""
-        if getattr(sys, "frozen", False):
-            self.BASE_DIR = Path(sys._MEIPASS)  # PyInstaller temp directory
-            self.INSTALL_DIR = Path("C:/Program Files/EduraSync")
-        else:
-            self.BASE_DIR = Path(__file__).parent.parent  # Project root
-            self.INSTALL_DIR = self.BASE_DIR
-
-    def _set_data_paths(self) -> None:
-        """Set DATA_DIR, preferring INSTALL_DIR with fallback to a platform-appropriate user data dir.
-
-        Instead of using os.access on a path that may not exist, try to create the
-        directory under INSTALL_DIR; if that fails, fall back to a writable per-platform
-        user data directory (Windows APPDATA, macOS ~/Library/Application Support,
-        otherwise ~/.local/share).
-        """
-        preferred = self.INSTALL_DIR / "data"
+    @staticmethod
+    def _test_writable_dir(path: Path) -> bool:
+        """Test if a directory exists and is writable."""
         try:
-            preferred.mkdir(parents=True, exist_ok=True)
-            # Try to write a tiny temp file to ensure writability
-            test_file = preferred / ".writetest"
-            with open(test_file, "w") as f:
-                f.write("ok")
+            path.mkdir(parents=True, exist_ok=True)
+            test_file = path / ".writetest"
+            test_file.write_text("ok")
             test_file.unlink()
-            self.DATA_DIR = preferred
-            return
+            return True
         except Exception:
-            # Fall through to platform-specific user data dir
-            pass
-
-        if sys.platform.startswith("win"):
-            appdata = os.getenv("APPDATA")
-            if appdata:
-                self.DATA_DIR = Path(appdata) / "EduraSync"
-            else:
-                self.DATA_DIR = Path.home() / "AppData" / "Roaming" / "EduraSync"
-        elif sys.platform == "darwin":
-            # macOS: use Library/Application Support
-            self.DATA_DIR = Path.home() / "Library" / "Application Support" / "EduraSync"
-        else:
-            # Linux / other: use XDG or ~/.local/share
-            xdg = os.getenv("XDG_DATA_HOME")
-            if xdg:
-                self.DATA_DIR = Path(xdg) / "EduraSync"
-            else:
-                self.DATA_DIR = Path.home() / ".local" / "share" / "EduraSync"
-
-        # Ensure the fallback dir exists
-        try:
-            self.DATA_DIR.mkdir(parents=True, exist_ok=True)
-        except Exception:
-            # As a last resort, use current working directory /data
-            self.DATA_DIR = Path.cwd() / "data"
-            self.DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-    def _set_icon_path(self) -> None:
-        """Set ICON_PATH, preferring INSTALL_DIR with fallback to BASE_DIR."""
-        self.ICON_PATH: Optional[Path] = self.INSTALL_DIR / "assets" / "icon.png"
-        self.BACKUP_ICON_PATH: Optional[Path] = (
-            self.INSTALL_DIR / "assets" / "backup-icon.png"
-        )
-        if not self.ICON_PATH.exists() or not os.access(str(self.ICON_PATH), os.R_OK):
-            self.logger.warning(
-                f"Icon not found in INSTALL_DIR at {self.ICON_PATH}, trying BASE_DIR"
-            )
-            self.ICON_PATH = self.BASE_DIR / "assets" / "icon.png"
-
-    def _validate_icon_path(self) -> None:
-        """Validate ICON_PATH and set to None if invalid."""
-        if self.ICON_PATH and (
-            not self.ICON_PATH.exists() or not os.access(str(self.ICON_PATH), os.R_OK)
-        ):
-            self.logger.warning(
-                f"Icon file not found or inaccessible at {self.ICON_PATH}"
-            )
-            self.ICON_PATH = None
-
-    def ensure_dirs(self) -> None:
-        """Ensure required directories for logs, database, and assets exist."""
-        self.LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        self.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        if self.ICON_PATH:
-            self.ICON_PATH.parent.mkdir(parents=True, exist_ok=True)
-        self.logger.info("Ensured required directories exist")
+            return False
 
     @property
-    def VERSION(self):
-        """Return the application version from constants."""
+    def LOG_FILE(self) -> Path:
+        """Path to the log file."""
+        return self.DATA_DIR / "logs" / "edurasync.log"
+
+    @property
+    def DB_PATH(self) -> Path:
+        """Path to the database file."""
+        return self.DATA_DIR / "edurasync.db"
+
+    @property
+    def VERSION(self) -> str:
+        """Application version."""
         return APP_VERSION

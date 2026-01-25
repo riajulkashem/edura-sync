@@ -80,7 +80,7 @@ class NotificationService:
         """
         try:
             notification = Notify()
-            notification.title = f"PrimeSync - {title}"
+            notification.title = f"EduraSync - {title}"
             notification.message = message
 
             # Set the icon if available
@@ -97,9 +97,9 @@ class NotificationService:
 
             # Platform-specific settings
             if platform.system() == "Windows":
-                notification.application_name = "PrimeSync"
+                notification.application_name = "EduraSync"
             else:  # Linux/macOS
-                notification.application_name = "PrimeSync"
+                notification.application_name = "EduraSync"
 
             notification.send(block=False)
             self.logger.debug(f"Desktop notification sent successfully: {title}")

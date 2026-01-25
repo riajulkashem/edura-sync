@@ -102,7 +102,7 @@ jobs:
 
       - name: Create credits file
         run: |
-          echo "PrimeSync - Attendance Synchronization System" | Out-File -FilePath CREDITS.txt -Encoding utf8
+          echo "EduraSync - Attendance Synchronization System" | Out-File -FilePath CREDITS.txt -Encoding utf8
           echo "Developed by Riajul Kashem, Software Engineer" | Out-File -FilePath CREDITS.txt -Append -Encoding utf8
 
       - name: Create Inno Setup installer

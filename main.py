@@ -3,23 +3,104 @@ import sys
 import os
 import argparse
 from pathlib import Path
-from datetime import datetime, time as dt_time
 from logging.handlers import RotatingFileHandler
 import sqlite3
+import traceback
+
+# Set up EARLY logging BEFORE anything else to catch startup crashes
+def setup_early_logging():
+    """Set up logging as early as possible, even before Config is initialized."""
+    # Determine log file location
+    if getattr(sys, "frozen", False):
+        # Running as installed app - use APPDATA or fallback to temp
+        if sys.platform.startswith("win"):
+            appdata = os.getenv("APPDATA")
+            if appdata:
+                log_dir = Path(appdata) / "EduraSync" / "logs"
+            else:
+                log_dir = Path.home() / "AppData" / "Roaming" / "EduraSync" / "logs"
+        else:
+            log_dir = Path.home() / ".local" / "share" / "EduraSync" / "logs"
+        
+        # Fallback to temp directory if we can't write to APPDATA
+        try:
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_file = log_dir / "edurasync.log"
+            # Test write access
+            test_file = log_dir / ".writetest"
+            with open(test_file, "w") as f:
+                f.write("test")
+            test_file.unlink()
+        except Exception:
+            # Use temp directory as last resort
+            import tempfile
+            log_dir = Path(tempfile.gettempdir()) / "EduraSync"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_file = log_dir / "edurasync.log"
+    else:
+        # Running from source
+        log_dir = Path("logs")
+        log_dir.mkdir(exist_ok=True)
+        log_file = log_dir / "edurasync.log"
+    
+    # Set up file handler
+    try:
+        file_handler = RotatingFileHandler(
+            str(log_file),
+            maxBytes=5*1024*1024,  # 5 MB
+            backupCount=5,
+            encoding='utf-8'
+        )
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(
+            logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        )
+    except Exception as e:
+        # If file logging fails, at least log to console
+        file_handler = None
+        print(f"WARNING: Could not set up file logging: {e}", file=sys.stderr)
+    
+    # Always set up console handler
+    console_handler = logging.StreamHandler(sys.stderr)
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(
+        logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+    )
+    
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    root_logger.handlers.clear()  # Clear any existing handlers
+    if file_handler:
+        root_logger.addHandler(file_handler)
+    root_logger.addHandler(console_handler)
+    
+    # Log the log file location
+    logger = logging.getLogger(__name__)
+    logger.info(f"Logging initialized. Log file: {log_file}")
+    print(f"EduraSync log file location: {log_file}", file=sys.stderr)
+    
+    return str(log_file)
+
+# Set up logging immediately
+LOG_FILE_PATH = setup_early_logging()
 
 # Import peewee early to ensure it's available
 try:
     import peewee
 except ImportError as e:
     # If running from PyInstaller bundle, try to fix the path
+    logging.error(f"Failed to import peewee: {e}", exc_info=True)
     if hasattr(sys, '_MEIPASS'):
-        import importlib.util
         peewee_path = os.path.join(sys._MEIPASS, 'peewee')
         if os.path.exists(peewee_path):
             sys.path.insert(0, sys._MEIPASS)
             import peewee
         else:
-            raise ImportError(f"peewee module not found. _MEIPASS: {sys._MEIPASS}, Error: {e}")
+            error_msg = f"peewee module not found. _MEIPASS: {sys._MEIPASS}, Error: {e}"
+            logging.error(error_msg)
+            print(f"CRITICAL ERROR: {error_msg}", file=sys.stderr)
+            raise ImportError(error_msg)
     else:
         raise
 
@@ -80,10 +161,46 @@ args = parse_arguments()
 
 def handle_exception(exc_type, exc_value, exc_traceback):
     """Global exception handler to log unhandled exceptions"""
-    logging.error("Unhandled exception", exc_info=(exc_type, exc_value, exc_traceback))
+    if exc_type is KeyboardInterrupt:
+        # Allow normal exit on Ctrl+C
+        sys.exit(0)
+    
+    # Log to file if logging is set up
+    try:
+        logging.error(
+            "Unhandled exception",
+            exc_info=(exc_type, exc_value, exc_traceback)
+        )
+    except Exception:
+        pass  # If logging fails, at least print to console
+    
+    # Always print to console/stderr
+    print("\n" + "="*80, file=sys.stderr)
+    print("CRITICAL ERROR: Unhandled exception occurred!", file=sys.stderr)
+    print("="*80, file=sys.stderr)
+    print(f"Exception Type: {exc_type.__name__}", file=sys.stderr)
+    print(f"Exception Value: {exc_value}", file=sys.stderr)
+    print("\nTraceback:", file=sys.stderr)
+    traceback.print_exception(exc_type, exc_value, exc_traceback, file=sys.stderr)
+    print("\n" + "="*80, file=sys.stderr)
+    print(f"Log file location: {LOG_FILE_PATH}", file=sys.stderr)
+    print("="*80 + "\n", file=sys.stderr)
+    
+    # Try to show a message box if Qt is available
+    try:
+        from PySide6.QtWidgets import QMessageBox, QApplication
+        if QApplication.instance():
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Critical)
+            msg.setWindowTitle("EduraSync - Critical Error")
+            msg.setText(f"An unexpected error occurred:\n\n{exc_value}\n\nCheck the log file for details:\n{LOG_FILE_PATH}")
+            msg.setDetailedText(traceback.format_exception(exc_type, exc_value, exc_traceback))
+            msg.exec()
+    except Exception:
+        pass  # If GUI is not available, just continue
 
 
-class PrimeSync:
+class EduraSync:
     """
     Main application class for EduraSync, managing GUI and services.
     Acts as a facade to coordinate subsystems.
@@ -491,54 +608,68 @@ class PrimeSync:
         )
 
 if __name__ == "__main__":
-    # Note: Logging is configured in Config class, but we set up basic logging here
-    # for early initialization before Config is created
-    if not getattr(sys, "frozen", False):
-        # Only set up file logging when running from source
-        # When frozen, Config will handle logging setup
-        logs_dir = Path("logs")
-        logs_dir.mkdir(exist_ok=True)
-
-        file_handler = RotatingFileHandler(
-            "logs/edurasync.log",
-            maxBytes=5*1024*1024,  # 5 MB
-            backupCount=5,
-            encoding='utf-8'
-        )
-        file_handler.setLevel(logging.INFO)
-        file_handler.setFormatter(
-            logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-        )
-        
-        stream_handler = logging.StreamHandler()
-        stream_handler.setLevel(logging.INFO)
-        stream_handler.setFormatter(
-            logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-        )
-        
-        logging.basicConfig(
-            level=logging.INFO,
-            handlers=[file_handler, stream_handler]
-        )
-
-    # Global exception handler
+    # Global exception handler - set up early
     sys.excepthook = handle_exception
+    
+    try:
+        logger = logging.getLogger(__name__)
+        logger.info("="*80)
+        logger.info("EduraSync starting...")
+        logger.info(f"Python version: {sys.version}")
+        logger.info(f"Platform: {sys.platform}")
+        logger.info(f"Log file: {LOG_FILE_PATH}")
+        logger.info("="*80)
+        
+        # Create Qt application
+        logger.info("Initializing Qt application...")
+        app = QApplication(sys.argv)
+        app.setQuitOnLastWindowClosed(False)  # Keep running in tray
+        logger.info("Qt application initialized")
 
-    # Create Qt application
-    app = QApplication(sys.argv)
-    app.setQuitOnLastWindowClosed(False)  # Keep running in tray
+        # Create main application instance
+        logger.info("Creating EduraSync instance...")
+        prime_sync = EduraSync(app, headless=args.headless, service=args.service)
+        logger.info("EduraSync instance created")
 
-    # Create main application instance
-    prime_sync = PrimeSync(app, headless=args.headless, service=args.service)
+        # Set up signal handlers before starting
+        import signal
+        signal.signal(signal.SIGINT, lambda sig, frame: prime_sync.exit_app())
+        signal.signal(signal.SIGTERM, lambda sig, frame: prime_sync.exit_app())
+        logger.info("Signal handlers set up")
 
-    # Set up signal handlers before starting
-    import signal
-    signal.signal(signal.SIGINT, lambda sig, frame: prime_sync.exit_app())
-    signal.signal(signal.SIGTERM, lambda sig, frame: prime_sync.exit_app())
+        # Initialize and run components
+        logger.info("Starting application...")
+        prime_sync.run()
+        logger.info("Application started successfully")
 
-    # Initialize and run components
-    prime_sync.run()
-
-    # Start Qt event loop (only if not in service mode which might handle its own loop)
-    # Actually, even in service mode we need the QTimer loop
-    sys.exit(app.exec())
+        # Start Qt event loop
+        logger.info("Starting Qt event loop...")
+        exit_code = app.exec()
+        logger.info(f"Application exiting with code: {exit_code}")
+        sys.exit(exit_code)
+        
+    except Exception as e:
+        # Catch any exception during startup and log it
+        error_msg = f"Fatal error during startup: {e}"
+        logging.critical(error_msg, exc_info=True)
+        print(f"\n{'='*80}", file=sys.stderr)
+        print(f"FATAL ERROR: {error_msg}", file=sys.stderr)
+        print(f"{'='*80}", file=sys.stderr)
+        print(f"Log file location: {LOG_FILE_PATH}", file=sys.stderr)
+        print("Please check the log file for details.", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        
+        # Try to show error dialog
+        try:
+            from PySide6.QtWidgets import QMessageBox, QApplication
+            if QApplication.instance():
+                msg = QMessageBox()
+                msg.setIcon(QMessageBox.Critical)
+                msg.setWindowTitle("EduraSync - Fatal Error")
+                msg.setText(f"Failed to start EduraSync:\n\n{error_msg}\n\nCheck the log file:\n{LOG_FILE_PATH}")
+                msg.setDetailedText(traceback.format_exc())
+                msg.exec()
+        except Exception:
+            pass
+        
+        sys.exit(1)

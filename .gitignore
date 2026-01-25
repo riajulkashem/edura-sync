@@ -11,9 +11,10 @@
 .idea/**/usage.statistics.xml
 .idea/**/dictionaries
 .idea/
-primesync.db
-primesync.db-shm
-primesync.db-wal
+EduraSync.db
+edurasync
+EduraSync.db-shm
+EduraSync.db-wal
 # AWS User-specific
 .idea/**/aws.xml
 
@@ -234,9 +235,9 @@ __pycache__/
 *.so
 
 *.db
-primesync.db
-primesync.db-shm
-primesync.db-wal
+EduraSync.db
+EduraSync.db-shm
+EduraSync.db-wal
 edurasync.db
 edurasync.db-shm
 edurasync.db-wal
