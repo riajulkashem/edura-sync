@@ -79,10 +79,17 @@ jobs:
 
       - name: Build with PyInstaller
         run: |
-          # Verify peewee can be imported before building
+          # Verify critical imports before starting the build
           python -c "import peewee; print('peewee imported successfully')"
-          
-          # Build using spec file (all collection options are in the spec file)
+          python -c "import PySide6; print('PySide6 imported successfully')"
+
+          # Guard: fail fast if spec file is missing
+          if (-not (Test-Path "edurasync.spec")) {
+            Write-Error "edurasync.spec not found in repository root!"
+            exit 1
+          }
+
+          # Build using spec file (all collection options are inside the spec)
           pyinstaller --clean --noconfirm edurasync.spec
           if ($LASTEXITCODE -ne 0) {
             Write-Host "PyInstaller failed with exit code $LASTEXITCODE"
@@ -103,14 +110,14 @@ jobs:
       - name: Create credits file
         run: |
           echo "EduraSync - Attendance Synchronization System" | Out-File -FilePath CREDITS.txt -Encoding utf8
-          echo "Developed by Riajul Kashem, Software Engineer" | Out-File -FilePath CREDITS.txt -Append -Encoding utf8
+          echo "Developed by Softzenix IT (softzenixbd.com)" | Out-File -FilePath CREDITS.txt -Append -Encoding utf8
 
       - name: Create Inno Setup installer
         run: |
           $innoScript = @"
           #define MyAppName "EduraSync"
           #define MyAppVersion "${{ env.APP_VERSION }}"
-          #define MyAppPublisher "Riajul Kashem"
+          #define MyAppPublisher "Softzenix IT"
           #define MyAppExeName "EduraSync.exe"
           
           [Setup]
