@@ -122,7 +122,7 @@ from interfaces.database.repository import (
     DeviceRepository, SettingsRepository, 
     UserRepository, AttendanceRepository
 )
-from interfaces.gui_pyside6.dashboard import DashboardGUI
+from interfaces.gui_pyside6.main_window import MainWindow
 from interfaces.gui_pyside6.tray import SystemTray
 from services.api_sync import APISync
 from services.device_manager import DeviceManager
@@ -262,7 +262,11 @@ class EduraSync:
 
         # Initialize GUI components - skip dashboard in headless/service mode
         if not self.headless and not self.service:
-            self.dashboard_gui = DashboardGUI(
+            # Apply design system to the Qt application
+            from interfaces.gui_pyside6.theme import apply_theme
+            apply_theme(qt_app)
+
+            self.dashboard_gui = MainWindow(
                 self,
                 self.device_repo,
                 self.user_repo,
@@ -270,12 +274,8 @@ class EduraSync:
                 self.settings_repo,
                 self.api_sync,
             )
-
-            # Update the dashboard with all required dependencies
-            self.dashboard_gui.settings_repo = self.settings_repo
-            self.dashboard_gui.api_sync = self.api_sync
             self.dashboard_gui.set_device_manager(self.device_manager)
-            self.logger.info("Dashboard GUI initialized")
+            self.logger.info("MainWindow GUI initialized")
         else:
             self.dashboard_gui = None
             mode_str = "service" if self.service else "headless"
@@ -296,6 +296,7 @@ class EduraSync:
         
         # Timers for periodic tasks
         self.scheduled_timers = {}  # Dict to store timers by task name
+        self._last_task_run = {}   # Track last run minute per task to prevent double-fire
 
         # Load settings
         self._load_settings()
@@ -341,13 +342,13 @@ class EduraSync:
             try:
                 fallback_dir.mkdir(parents=True, exist_ok=True)
             except Exception:
-                # If we cannot create fallback dir, re-raise original error as DatabaseError
                 raise DatabaseError(f"Unable to prepare fallback database directory: {fallback_dir}") from e
 
             fallback_db_path = str(fallback_dir / self.config.DB_NAME)
             self.logger.info(f"Attempting fallback database path: {fallback_db_path}")
 
-            # Create a new database instance pointed to the fallback path
+            # Reset the singleton so get_database() creates a fresh instance at the fallback path.
+            DatabaseFactory.reset()
             db_instance = DatabaseFactory.get_database(fallback_db_path, pragmas=pragmas)
             try:
                 db_instance.connect()
@@ -393,17 +394,32 @@ class EduraSync:
         """Initialize and start all application components."""
         # Show dashboard only in GUI mode
         if not self.headless and not self.service:
-            self.dashboard_gui.show_dashboard()
+            # Determine first-run: no settings row yet
+            first_run = self.settings_repo.get_settings() is None
+
+            if first_run:
+                # Show onboarding wizard before the main window
+                from interfaces.gui_pyside6.onboarding import OnboardingWizard
+                from PySide6.QtWidgets import QDialog
+                wizard = OnboardingWizard(self.settings_repo)
+                if wizard.exec() == QDialog.DialogCode.Accepted:
+                    # Reload settings so API sync picks them up
+                    self.api_sync.load_settings()
+                    self.logger.info("Onboarding completed — settings saved")
+                else:
+                    self.logger.warning("Onboarding cancelled — proceeding without settings")
+
+            self.dashboard_gui.show_dashboard(first_run=first_run)
             # Start periodic refresh
             self.dashboard_gui.start_periodic_refresh(30000)
-        
+
         # Start system tray (always, unless service mode)
         if not self.service:
             self.tray.run()
-        
+
         # Schedule daily tasks (always)
         self._start_periodic_tasks()
-        
+
         self.logger.info("EduraSync application components started")
 
 
@@ -416,9 +432,18 @@ class EduraSync:
         if not settings:
             return
             
-        # Start timer for daily sync if set
-        if settings.sync_time:
+        # Start timer for daily sync only when enabled and a time is configured
+        is_enabled = getattr(settings, "is_sync_enabled", True)
+        if settings.sync_time and is_enabled:
             self._schedule_daily_task(settings.sync_time, self._full_sync, "daily_synchronization")
+        elif not is_enabled:
+            # Cancel any existing scheduled task when sync is disabled
+            if "daily_synchronization" in self.scheduled_timers:
+                old = self.scheduled_timers.pop("daily_synchronization")
+                if old and old.isActive():
+                    old.stop()
+                old.deleteLater()
+                self.logger.info("Daily sync disabled — cancelled existing timer")
             
         # Trigger initial cleanup
         QTimer.singleShot(5000, self._periodic_cleanup_startup)
@@ -459,22 +484,30 @@ class EduraSync:
 
     def _schedule_daily_task(self, target_time, task_function, task_name: str):
         """Schedule a daily task to run at the specified time."""
-        # Create a timer that checks every minute
+        # Stop and clean up any existing timer for this task before creating a new one.
+        if task_name in self.scheduled_timers:
+            old_timer = self.scheduled_timers.pop(task_name)
+            if old_timer and old_timer.isActive():
+                old_timer.stop()
+            old_timer.deleteLater()
+
         timer = QTimer()
-        timer.timeout.connect(lambda: self._check_and_run_task(target_time, task_function))
+        timer.timeout.connect(lambda: self._check_and_run_task(target_time, task_function, task_name))
         timer.start(60000)  # Check every minute
-        
-        # Store timer with task name
+
         self.scheduled_timers[task_name] = timer
-            
         self.logger.info(f"Scheduled daily task '{task_name}' for {target_time}")
 
-    def _check_and_run_task(self, target_time, task_function):
+    def _check_and_run_task(self, target_time, task_function, task_name: str):
         """Check if it's time to run the task and execute it."""
         current_time = QTime.currentTime()
-        # Check if current time matches target time (within a minute)
-        if (current_time.hour() == target_time.hour and 
-            current_time.minute() == target_time.minute):
+        if (current_time.hour() == target_time.hour and
+                current_time.minute() == target_time.minute):
+            # Prevent double-fire within the same minute window
+            run_key = (current_time.hour(), current_time.minute())
+            if self._last_task_run.get(task_name) == run_key:
+                return
+            self._last_task_run[task_name] = run_key
             try:
                 task_function()
             except Exception as e:
@@ -583,12 +616,11 @@ class EduraSync:
                 self.logger.debug(f"Stopped timer: {timer_name}")
         self.scheduled_timers.clear()
         
-        # Stop tray
-        self.tray.stop()
-        
         # Clean up GUI resources
         if self.dashboard_gui:
             self.dashboard_gui.cleanup()
+
+        # Stop and clean up tray (cleanup() calls stop() internally)
         self.tray.cleanup()
         
         # Close API sync session

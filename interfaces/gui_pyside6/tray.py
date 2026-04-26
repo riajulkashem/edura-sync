@@ -1,280 +1,273 @@
+# interfaces/gui_pyside6/tray.py
+"""
+System tray icon and context menu.
+
+Design rules:
+  • GUI mode  — all sync actions delegate to MainWindow's trigger_*() methods,
+    which use the WorkerManager + QThread workers.  No blocking on the main thread.
+  • Headless mode — actions run in a plain Python thread so the Qt event loop
+    stays responsive even without a visible window.
+  • OperationManager guards headless-mode actions so two concurrent background
+    jobs cannot run simultaneously.
+"""
+from __future__ import annotations
+
 import logging
 import platform
+import threading
 from typing import Optional
 
-from PySide6.QtWidgets import QSystemTrayIcon, QMenu, QApplication, QMessageBox
-from PySide6.QtGui import QIcon, QAction
-from PySide6.QtCore import QCoreApplication, QTimer
+from PySide6.QtWidgets import QSystemTrayIcon, QMenu, QApplication
+from PySide6.QtGui import QIcon, QAction, QCursor
+from PySide6.QtCore import QTimer
 
-from core.exceptions import GUIError, ConnectionError, APICallError
 from core.config import Config
 from core.constants import APP_NAME
-from core.operation_manager import OperationManager, operation_lock
-from pathlib import Path
+from core.operation_manager import OperationManager
 
 
 class SystemTray:
-    """
-    Manages the system tray icon and menu for the EduraSync application using PySide6.
-    Provides quick access to application actions.
-    """
+    """Manages the system tray icon, context menu, and background operations."""
 
     def __init__(
         self,
-        app,
-        config,
+        app,                   # EduraSync application instance
+        config: Config,
         device_manager,
         api_sync,
-        dashboard_gui,
+        dashboard_gui,         # MainWindow or None (headless/service mode)
         notification_service,
     ):
-        """
-        Initialize the system tray with dependencies.
-        Args:
-            app: Reference to the main EduraSync application.
-            config: Application configuration.
-            device_manager: Service for device management.
-            api_sync: Service for cloud API interactions.
-            dashboard_gui: Dashboard GUI component.
-            notification_service: Service for sending notifications.
-        """
-        self.app = app
-        self.config = config
-        self.device_manager = device_manager
-        self.api_sync = api_sync
-        self.dashboard_gui = dashboard_gui
+        self.app                  = app
+        self.config               = config
+        self.device_manager       = device_manager
+        self.api_sync             = api_sync
+        self.dashboard_gui        = dashboard_gui
         self.notification_service = notification_service
-        self.logger = logging.getLogger(__name__)
+        self.logger               = logging.getLogger(__name__)
         self.tray_icon: Optional[QSystemTrayIcon] = None
-        
-        # Timers for periodic tasks
-        self.device_check_timer = None
-        self.data_sync_timer = None
-        
-        # Get operation manager instance
-        self.operation_manager = OperationManager()
-        
-        # Check if system tray is supported on this platform
-        self.is_tray_supported = self._is_tray_supported()
+        self.operation_manager    = OperationManager()
+
+        self.is_tray_supported = QSystemTrayIcon.isSystemTrayAvailable()
         if self.is_tray_supported:
             self._setup_tray()
         else:
-            self.logger.info("System tray disabled on this platform")
+            self.logger.info("System tray not available on this platform")
 
-    def _is_tray_supported(self) -> bool:
-        """Check if system tray is supported on the current platform."""
-        # Check if system tray is available (removed macOS restriction)
-        return QSystemTrayIcon.isSystemTrayAvailable()
-
-    def _run_action(self, action, description: str):
-        """
-        Creates a wrapper function for tray menu actions with error handling and operation locking.
-
-        Args:
-            action: The function to run
-            description: Description of the action for logging
-        """
-        def wrapper():
-            # Check if an operation is already in progress
-            if self.operation_manager.is_operation_in_progress():
-                current_op = self.operation_manager.get_current_operation()
-                self.logger.warning(
-                    f"Cannot start {description} - {current_op} already in progress"
-                )
-                self.notification_service.notify(
-                    "Operation Blocked",
-                    f"Cannot {description.lower()} - {current_op} is in progress. Please wait.",
-                    "warning"
-                )
-                return
-            
-            # Acquire lock for this operation
-            if not self.operation_manager.acquire_operation_lock(description):
-                return
-            
-            try:
-                self.logger.info(f"Running action: {description}")
-                action()
-                self.logger.info(f"Completed action: {description}")
-            except (ConnectionError, APICallError) as e:
-                self.logger.error(f"Operation error in {description}: {e.message}")
-                self.notification_service.notify(
-                    "Error", f"Failed to {description.lower()}: {e.message}", "error"
-                )
-            except Exception as e:
-                self.logger.error(f"Unexpected error in {description}: {e}")
-                self.notification_service.notify(
-                    "Error", f"Failed to {description.lower()}: {str(e)}", "error"
-                )
-            finally:
-                # Always release the operation lock
-                self.operation_manager.release_operation_lock(description)
-        return wrapper
+    # ── Tray construction ─────────────────────────────────────────────────────
 
     def _setup_tray(self) -> None:
-        """Set up the system tray icon and menu."""
-        # Create tray icon
         self.tray_icon = QSystemTrayIcon()
-        
-        # Set icon
+
         icon_path = self.config.ICON_PATH
         if icon_path and icon_path.exists():
             self.tray_icon.setIcon(QIcon(str(icon_path)))
-            self.logger.info(f"Loaded tray icon from {icon_path}")
         else:
-            # Use default application icon
-            self.tray_icon.setIcon(QApplication.style().standardIcon(QApplication.StandardPixmap.SP_ComputerIcon))
-            self.logger.warning(f"Icon file not available at {icon_path}, using default")
+            self.tray_icon.setIcon(
+                QApplication.style().standardIcon(QApplication.StandardPixmap.SP_ComputerIcon)
+            )
+            self.logger.warning(f"Tray icon not found at {icon_path}, using default")
 
-        # Create context menu
-        tray_menu = QMenu()
+        self.tray_icon.setToolTip(APP_NAME)
 
-        # Add menu items
-        tray_menu.addAction(QAction("Check Device Status", tray_menu, 
-                          triggered=self._run_action(self.device_manager.check_devices, "Checking device status...")))
-        
-        tray_menu.addAction(QAction("Perform Full Sync", tray_menu, 
-                          triggered=self._run_action(self.api_sync.sync_data, "Daily synchronization...")))
-        
-        tray_menu.addAction(QAction("Upload Attendance", tray_menu, 
-                          triggered=self._run_action(self.api_sync.post_to_cloud, "Uploading to cloud...")))
-        
-        tray_menu.addAction(QAction("Fetch New Logs", tray_menu, 
-                          triggered=self._run_action(self.device_manager.pull_data, "Fetching device logs...")))
-        
-        tray_menu.addAction(QAction("Sync User Profiles", tray_menu, 
-                          triggered=self._run_action(self.api_sync.sync_users, "Updating profiles...")))
-        
-        # Add periodic task controls
-        tray_menu.addSeparator()
-        tray_menu.addAction(QAction("Start Auto-Check", tray_menu, 
-                          triggered=self.start_periodic_device_check))
-        tray_menu.addAction(QAction("Stop Auto-Check", tray_menu, 
-                          triggered=self.stop_periodic_device_check))
-        
-        tray_menu.addSeparator()
-        
-        # Dashboard actions - only if dashboard exists
+        # Build and keep a reference to the menu.
+        self._menu = self._build_menu()
+
+        if platform.system() == "Darwin":
+            # macOS: do NOT call setContextMenu(). When setContextMenu is used
+            # on macOS, Qt hands click control to the OS which shows only a
+            # tiny native "dot" indicator and never fires a Qt popup.
+            # Instead we handle every click ourselves in _on_activated().
+            pass
+        else:
+            # Windows / Linux: Qt shows the menu automatically on right-click.
+            self.tray_icon.setContextMenu(self._menu)
+
+        self.tray_icon.activated.connect(self._on_activated)
+
+    def _build_menu(self) -> QMenu:
+        menu = QMenu()
+
+        # ── Open dashboard ────────────────────────────────────────────────────
         if self.dashboard_gui:
-            tray_menu.addAction(QAction("Open Dashboard", tray_menu, 
-                               triggered=self._run_action(self.dashboard_gui.show_dashboard, "Opening Dashboard...")))
-            
-            tray_menu.addAction(QAction("App Settings", tray_menu, 
-                               triggered=lambda: self.dashboard_gui.show_dashboard(first_run=True)))
+            menu.addAction(self._action(
+                "Open Dashboard",
+                lambda: self.dashboard_gui.show_dashboard(),
+                use_worker=False,
+            ))
+            menu.addAction(self._action(
+                "Open Settings",
+                lambda: (self.dashboard_gui.show_dashboard(), self.dashboard_gui._switch_page(3)),
+                use_worker=False,
+            ))
+            menu.addSeparator()
+
+        # ── Sync actions ──────────────────────────────────────────────────────
+        if self.dashboard_gui:
+            # GUI mode — delegate to MainWindow workers (non-blocking)
+            menu.addAction(self._action(
+                "⬇  Pull from Devices",
+                self.dashboard_gui.trigger_pull_from_devices,
+                use_worker=False,  # MainWindow already manages the worker
+            ))
+            menu.addAction(self._action(
+                "⬆  Post to Cloud",
+                self.dashboard_gui.trigger_post_to_cloud,
+                use_worker=False,
+            ))
+            menu.addAction(self._action(
+                "⬇⬆  Sync Attendance",
+                self.dashboard_gui.trigger_sync_attendance,
+                use_worker=False,
+            ))
+            menu.addAction(self._action(
+                "↻  Sync Users & Devices",
+                self.dashboard_gui.trigger_sync_users,
+                use_worker=False,
+            ))
+            menu.addAction(self._action(
+                "●  Check Device Status",
+                self.dashboard_gui.trigger_check_devices,
+                use_worker=False,
+            ))
         else:
-            # Headless mode - show simple info
-            tray_menu.addAction(QAction("Running in Headless Mode", tray_menu, enabled=False))
-        
-        tray_menu.addSeparator()
-        
-        tray_menu.addAction(QAction("Quit Application", tray_menu, 
-                          triggered=self._run_action(self.app.exit_app, "Shutting down...")))
+            # Headless / service mode — run in a background thread
+            menu.addAction(self._action(
+                "⬇  Pull from Devices",
+                self.device_manager.pull_data,
+                description="Pull attendance from devices",
+            ))
+            menu.addAction(self._action(
+                "⬆  Post to Cloud",
+                self.api_sync.post_to_cloud,
+                description="Upload attendance to cloud",
+            ))
+            menu.addAction(self._action(
+                "⬇⬆  Sync Attendance",
+                self._headless_full_sync,
+                description="Sync attendance (pull + upload)",
+            ))
+            menu.addAction(self._action(
+                "↻  Sync Users & Devices",
+                self.api_sync.sync_users,
+                description="Sync user profiles",
+            ))
+            menu.addAction(self._action(
+                "●  Check Device Status",
+                self.device_manager.check_devices,
+                description="Check device connectivity",
+            ))
 
-        # Set context menu
-        self.tray_icon.setContextMenu(tray_menu)
+        # ── App control ───────────────────────────────────────────────────────
+        menu.addSeparator()
+        menu.addAction(self._action(
+            "Quit",
+            self.app.exit_app,
+            use_worker=False,
+        ))
 
-        # Connect tray icon activation
-        self.tray_icon.activated.connect(self._on_tray_icon_activated)
+        return menu
 
-    def _on_tray_icon_activated(self, reason):
-        """Handle tray icon activation."""
+    def _action(
+        self,
+        label: str,
+        callback,
+        description: str = "",
+        use_worker: bool = True,
+    ) -> QAction:
+        """
+        Build a QAction.
+
+        use_worker=False  → callback is called directly on the main thread
+                            (safe for navigation / delegating to MainWindow workers).
+        use_worker=True   → callback is wrapped in a daemon thread with
+                            OperationManager locking (headless mode only).
+        """
+        if use_worker:
+            slot = self._headless_action(callback, description or label)
+        else:
+            slot = callback
+
+        act = QAction(label)
+        act.triggered.connect(slot)
+        return act
+
+    # ── Headless-mode thread wrapper ──────────────────────────────────────────
+
+    def _headless_action(self, fn, description: str):
+        """Return a callable that runs *fn* in a daemon thread with operation locking."""
+        def slot():
+            if self.operation_manager.is_operation_in_progress():
+                current = self.operation_manager.get_current_operation()
+                self.logger.warning(f"Cannot start '{description}' — '{current}' in progress")
+                self.notification_service.notify(
+                    "Busy",
+                    f"Cannot start: another operation is already running ({current}).",
+                    "warning",
+                )
+                return
+
+            def run():
+                if not self.operation_manager.acquire_operation_lock(description):
+                    return
+                try:
+                    self.logger.info(f"Tray: starting '{description}'")
+                    fn()
+                    self.logger.info(f"Tray: completed '{description}'")
+                    self.notification_service.notify(description, "Completed successfully.", "info")
+                except Exception as e:
+                    self.logger.error(f"Tray: '{description}' failed: {e}", exc_info=True)
+                    self.notification_service.notify(description, f"Failed: {e}", "error")
+                finally:
+                    self.operation_manager.release_operation_lock(description)
+
+            t = threading.Thread(target=run, daemon=True, name=f"tray-{description}")
+            t.start()
+
+        return slot
+
+    def _headless_full_sync(self):
+        """Pull from devices then upload to cloud (headless mode, already in worker thread)."""
+        self.device_manager.pull_data()
+        self.api_sync.post_to_cloud()
+
+    # ── Activation ────────────────────────────────────────────────────────────
+
+    def _on_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
-            # Double click always shows dashboard
             if self.dashboard_gui:
                 self.dashboard_gui.show_dashboard()
-        
+
         elif reason == QSystemTrayIcon.ActivationReason.Trigger:
-            # Single click behavior
-            # On macOS, single click standard is to show the menu (handled by Qt)
-            # Opening a window simultaneously is confusing.
-            if platform.system() != 'Darwin':
+            if platform.system() == "Darwin":
+                # macOS: single click shows the context menu.
+                # exec() creates a proper blocking event loop for the menu so it
+                # stays open until the user picks an item or clicks away — unlike
+                # popup() which can dismiss instantly on macOS.
+                self._menu.exec(QCursor.pos())
+            else:
+                # Windows / Linux: single-click restores the window.
                 if self.dashboard_gui:
                     self.dashboard_gui.show_dashboard()
-            else:
-                self.logger.debug("macOS: Single click handled by context menu")
 
-    def start_periodic_device_check(self, interval_ms=60000):
-        """Start periodic device checking using QTimer."""
-        if self.device_check_timer is None:
-            self.device_check_timer = QTimer()
-            self.device_check_timer.timeout.connect(lambda: self._run_action(self.device_manager.check_devices, "Periodic Device Check")())
-            self.device_check_timer.start(interval_ms)  # Default 60 seconds
-            self.logger.info(f"Started periodic device check every {interval_ms} ms")
-            self.notification_service.notify(
-                "Auto-Check", 
-                f"Started periodic device check every {interval_ms//1000} seconds", 
-                "info"
-            )
-        elif not self.device_check_timer.isActive():
-            self.device_check_timer.start(interval_ms)
+        elif reason == QSystemTrayIcon.ActivationReason.Context:
+            # Right-click (non-macOS) — safety net in case setContextMenu()
+            # doesn't fire automatically in some window managers.
+            self._menu.exec(QCursor.pos())
 
-    def stop_periodic_device_check(self):
-        """Stop periodic device checking."""
-        if self.device_check_timer and self.device_check_timer.isActive():
-            self.device_check_timer.stop()
-            self.logger.info("Stopped periodic device check")
-            self.notification_service.notify(
-                "Auto-Check", 
-                "Stopped periodic device check", 
-                "info"
-            )
-
-    def start_periodic_data_sync(self, interval_ms=300000):
-        """Start periodic data synchronization using QTimer."""
-        if self.data_sync_timer is None:
-            self.data_sync_timer = QTimer()
-            self.data_sync_timer.timeout.connect(lambda: self._run_action(self.api_sync.sync_data, "Periodic Data Sync")())
-            self.data_sync_timer.start(interval_ms)  # Default 5 minutes
-            self.logger.info(f"Started periodic data sync every {interval_ms} ms")
-            self.notification_service.notify(
-                "Auto-Sync", 
-                f"Started periodic data sync every {interval_ms//60000} minutes", 
-                "info"
-            )
-        elif not self.data_sync_timer.isActive():
-            self.data_sync_timer.start(interval_ms)
-
-    def stop_periodic_data_sync(self):
-        """Stop periodic data synchronization."""
-        if self.data_sync_timer and self.data_sync_timer.isActive():
-            self.data_sync_timer.stop()
-            self.logger.info("Stopped periodic data sync")
-            self.notification_service.notify(
-                "Auto-Sync", 
-                "Stopped periodic data sync", 
-                "info"
-            )
+    # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     def run(self) -> None:
-        """Run the system tray icon."""
         if self.tray_icon:
             self.tray_icon.show()
-        elif not self.is_tray_supported:
-            # On platforms where tray is not supported, show a message and keep the dashboard open
-            self.logger.info("System tray not available - running in dashboard mode")
-            # The dashboard is already shown in the main app run method
+        else:
+            self.logger.info("No system tray — running in dashboard-only mode")
 
     def stop(self) -> None:
-        """Stop the system tray icon and clean up resources."""
-        # Stop timers
-        self.stop_periodic_device_check()
-        self.stop_periodic_data_sync()
-        
-        # Clean up timer objects
-        if self.device_check_timer:
-            self.device_check_timer.deleteLater()
-            self.device_check_timer = None
-            
-        if self.data_sync_timer:
-            self.data_sync_timer.deleteLater()
-            self.data_sync_timer = None
-        
-        # Hide tray icon
         if self.tray_icon:
             self.tray_icon.hide()
-            self.logger.info("System tray stopped")
+            self.logger.info("System tray hidden")
 
-    def cleanup(self):
-        """Clean up resources."""
+    def cleanup(self) -> None:
         self.stop()
         self.logger.info("SystemTray resources cleaned up")

@@ -2,7 +2,6 @@ import os
 from datetime import datetime
 import logging
 from pathlib import Path
-from functools import lru_cache
 
 from peewee import *
 
@@ -20,9 +19,45 @@ class DatabaseFactory:
     _db = None
 
     @classmethod
+    def reset(cls) -> None:
+        """Reset the singleton so a new database path can be used (e.g. fallback path)."""
+        cls._db = None
+
+    @classmethod
+    def _build_db(cls, db_path: str, pragmas: dict) -> SqliteDatabase:
+        """Create and configure a new SqliteDatabase instance."""
+        logger.info(f"Initializing database with path: {db_path}")
+
+        # Special-case in-memory DB: keep ':memory:' as-is so SQLite uses an actual
+        # in-memory database rather than creating a file named ':memory:' in cwd.
+        if db_path == ':memory:' or db_path.startswith('file:'):
+            logger.info(f"Using special database path: {db_path}")
+        else:
+            # If path is relative, resolve against the current working directory.
+            if not os.path.isabs(db_path):
+                project_dir = Path.cwd()
+                db_path = str(project_dir / db_path)
+                logger.info(f"Using absolute path: {db_path}")
+
+            # Ensure parent directory exists.
+            db_dir = os.path.dirname(db_path)
+            if db_dir:
+                os.makedirs(db_dir, exist_ok=True)
+                logger.info(f"Ensured database directory exists: {db_dir}")
+
+        db_pragmas = pragmas if pragmas is not None else DB_PRAGMAS
+        instance = SqliteDatabase(db_path, pragmas=db_pragmas)
+        logger.info(f"Database created at {db_path} with pragmas: {db_pragmas}")
+        return instance
+
+    @classmethod
     def get_database(cls, db_path: str = DEFAULT_DB_NAME, pragmas: dict = None) -> SqliteDatabase:
         """
         Get or create a database connection.
+
+        If called with a different path after reset() the factory will create a
+        new instance, allowing main.py's fallback path logic to work correctly.
+
         Args:
             db_path: Path to the SQLite database file.
             pragmas: Custom database pragmas.
@@ -30,32 +65,7 @@ class DatabaseFactory:
             SqliteDatabase: Configured database instance.
         """
         if cls._db is None:
-            logger.info(f"Initializing database with path: {db_path}")
-
-            # Special-case in-memory DB: keep ':memory:' as-is so SQLite uses an actual
-            # in-memory database rather than creating a file named ':memory:' in cwd.
-            if db_path == ':memory:' or db_path.startswith('file:'):
-                # Use as provided (do not convert to absolute path)
-                logger.info(f"Using special database path: {db_path}")
-            else:
-                # If path is relative, use current directory
-                if not os.path.isabs(db_path):
-                    # Get the project root directory (current working directory)
-                    project_dir = Path.cwd()
-                    db_path = str(project_dir / db_path)
-                    logger.info(f"Using absolute path: {db_path}")
-
-            # Ensure parent directory exists (skip for in-memory DBs)
-            if db_path != ':memory:' and not db_path.startswith('file:'):
-                db_dir = os.path.dirname(db_path)
-                if db_dir:  # Only create directory if there is a path
-                    os.makedirs(db_dir, exist_ok=True)
-                    logger.info(f"Ensured database directory exists: {db_dir}")
-
-            # Use provided pragmas or default
-            db_pragmas = pragmas if pragmas is not None else DB_PRAGMAS
-            cls._db = SqliteDatabase(db_path, pragmas=db_pragmas)
-            logger.info(f"Database created at {db_path} with pragmas: {db_pragmas}")
+            cls._db = cls._build_db(db_path, pragmas if pragmas is not None else DB_PRAGMAS)
         return cls._db
 
 
@@ -229,6 +239,7 @@ class Settings(BaseModel):
     cloud_api_url = CharField(default="", index=True)
     sync_id = CharField(default="", index=True, help_text="Sync ID for all API requests")
     sync_time = TimeField(null=True)
+    is_sync_enabled = BooleanField(default=True, help_text="Enable/disable the daily automatic sync schedule")
     last_sync = DateTimeField(null=True, index=True)
     last_post = DateTimeField(null=True, index=True)
     attendance_pending = IntegerField(default=0)
@@ -251,12 +262,6 @@ class Settings(BaseModel):
         # Update the updated_at timestamp
         self.updated_at = datetime.now()
         return super().save(*args, **kwargs)
-
-
-@lru_cache(maxsize=128)
-def _get_cached_query_result(query_func, *args, **kwargs):
-    """Cache query results for better performance."""
-    return query_func(*args, **kwargs)
 
 
 def create_indexes():
@@ -314,13 +319,16 @@ def migrate_database():
                 db.execute_sql("CREATE INDEX IF NOT EXISTS idx_device_cloud_id ON devices (cloud_id)")
                 logger.info("Added cloud_id column to devices table")
                 
-        # Check if sync_time column exists in settings
+        # Check if sync_time / is_sync_enabled columns exist in settings
         if db.table_exists('settings'):
             cursor = db.execute_sql("PRAGMA table_info(settings)")
             settings_columns = [row[1] for row in cursor.fetchall()]
             if 'sync_time' not in settings_columns:
                 db.execute_sql("ALTER TABLE settings ADD COLUMN sync_time TEXT NULL")
                 logger.info("Added sync_time column to settings table")
+            if 'is_sync_enabled' not in settings_columns:
+                db.execute_sql("ALTER TABLE settings ADD COLUMN is_sync_enabled INTEGER NOT NULL DEFAULT 1")
+                logger.info("Added is_sync_enabled column to settings table")
         
         # Check if device column exists in attendance
         if db.table_exists('attendance'):

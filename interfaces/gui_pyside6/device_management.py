@@ -20,7 +20,7 @@ from PySide6.QtGui import (
 )
 
 from interfaces.database.models import Device
-from interfaces.database.repository import DeviceRepository, UserRepository, AttendanceRepository
+from interfaces.database.repository import DeviceRepository, UserRepository, AttendanceRepository, SettingsRepository
 from services.device_utils import DeviceConnectionManager
 from interfaces.gui_pyside6.gui_utils import handle_gui_errors
 from zk import ZK
@@ -334,6 +334,7 @@ class DeviceManagementWidget(QWidget):
         self.device_repo = DeviceRepository()
         self.user_repo = UserRepository()
         self.attendance_repo = AttendanceRepository()
+        self.settings_repo = SettingsRepository()
         
         # Current device and data
         self.current_device = None
@@ -860,8 +861,8 @@ class DeviceManagementWidget(QWidget):
             QMessageBox.warning(self, "Warning", "Please select a device first")
             return
             
-        settings = UserRepository().model._meta.database.execute_sql("SELECT sync_id FROM settings LIMIT 1").fetchone()
-        actual_sync_id = settings[0] if settings else ""
+        settings = self.settings_repo.get_settings()
+        actual_sync_id = settings.sync_id if settings else ""
 
         reply = QMessageBox.warning(
             self, "Reset Device",
@@ -999,19 +1000,18 @@ class DeviceManagementWidget(QWidget):
         if current_row < 0:
             QMessageBox.warning(self, "Warning", "Please select a user to edit")
             return
-            
-        # Get user data from table
+
+        # Table columns: [Cloud ID(0), Device UID(1), Name(2), Role(3), Card(4), Group(5), Actions(6)]
         user_id = self.users_table.item(current_row, 0).text()
-        name = self.users_table.item(current_row, 1).text()
-        # role text not used here; privilege will be chosen in dialog
-        card = self.users_table.item(current_row, 3).text()
-        
+        name = self.users_table.item(current_row, 2).text()
+        card = self.users_table.item(current_row, 4).text()
+
         user_data = {
             'user_id': user_id,
             'name': name,
-            'role': 0,  # Default role
+            'role': 0,
             'card': card,
-            'group_id': 0
+            'group_id': 0,
         }
         
         dialog = UserDialog(self, user_data, is_edit=True)
