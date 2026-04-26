@@ -3,6 +3,7 @@ import platform
 from pathlib import Path
 from typing import Optional
 
+from core.constants import APP_NAME
 from core.exceptions import NotificationError
 
 try:
@@ -80,7 +81,8 @@ class NotificationService:
         """
         try:
             notification = Notify()
-            notification.title = f"EduraSync - {title}"
+            # Avoid "EduraSync - EduraSync" when caller already prefixes the title
+            notification.title = title if title.startswith(APP_NAME) else f"{APP_NAME} — {title}"
             notification.message = message
 
             # Set the icon if available

@@ -78,24 +78,30 @@ class APISync:
     def _make_api_request(self, method: str, endpoint: str, **kwargs) -> requests.Response:
         """
         Make an API request with common error handling.
-        
+
+        A default timeout of (connect=10s, read=60s) is applied to every request
+        unless the caller explicitly passes a different ``timeout`` value.
+
         Args:
             method: HTTP method ('GET', 'POST', 'PUT', 'DELETE')
             endpoint: API endpoint
-            **kwargs: Additional arguments for requests
-            
+            **kwargs: Additional arguments passed to requests (e.g. json, timeout)
+
         Returns:
             requests.Response: API response
         """
         url = f"{self.cloud_api_url.rstrip('/')}{endpoint}"
         headers = self._get_headers()
-        
-        # Merge headers
+
+        # Merge caller-provided headers with auth headers.
         if 'headers' in kwargs:
             kwargs['headers'].update(headers)
         else:
             kwargs['headers'] = headers
-            
+
+        # Apply a sensible default timeout so the main thread never blocks forever.
+        kwargs.setdefault('timeout', (10, 60))  # (connect, read) in seconds
+
         response = getattr(self._session, method.lower())(url, **kwargs)
         return response
 
@@ -221,14 +227,12 @@ class APISync:
         self.logger.info(f"Posting {len(attendance_data)} attendance records to cloud")
         endpoint = '/api/attendance/attendance-log/'
         
-        # Prepare payload for API (remove internal ID)
+        # Prepare payload for API (strip the internal DB id before sending)
         api_payload = []
         for record in attendance_data:
             payload_item = record.copy()
             self.logger.debug(f"Processing attendance record: {payload_item}")
-            print(payload_item)
-            if "id" in payload_item:
-                del payload_item["id"]
+            payload_item.pop("id", None)
             api_payload.append(payload_item)
             
         response = self._make_api_request(
@@ -328,21 +332,36 @@ class APISync:
         response = self._make_api_request('GET', endpoint)
         
         if self._handle_api_response(response):
-            data = response.json()
+            try:
+                data = response.json()
+            except Exception as exc:
+                self.logger.error(f"Cloud response is not valid JSON: {exc}\nRaw body: {response.text[:500]}")
+                return None
+
             users = data.get("users", [])
             devices = data.get("devices", [])
-            
-            # Ensure users and devices are lists, not integers
+
             if not isinstance(users, list):
+                self.logger.warning(f"Expected 'users' list but got {type(users).__name__}: {users!r}")
                 users = []
             if not isinstance(devices, list):
+                self.logger.warning(f"Expected 'devices' list but got {type(devices).__name__}: {devices!r}")
                 devices = []
-            
-            self.logger.info(f"Successfully pulled {len(users)} users and {len(devices)} devices from cloud")
-            return {
-                "users": users,
-                "devices": devices
-            }
+
+            # Validate individual user records and report missing expected fields
+            _expected_user_keys = {"id", "name", "type", "card", "device_id"}
+            for idx, u in enumerate(users[:3]):  # sample first 3 only
+                missing = _expected_user_keys - set(u.keys())
+                extra   = set(u.keys()) - _expected_user_keys - {"role", "password", "group_id", "device_code", "card_number"}
+                if missing:
+                    self.logger.warning(f"User[{idx}] missing keys: {missing} — record: {u}")
+                if extra:
+                    self.logger.debug(f"User[{idx}] unexpected extra keys: {extra}")
+
+            self.logger.info(
+                f"Cloud data received — {len(users)} users, {len(devices)} devices"
+            )
+            return {"users": users, "devices": devices}
         return None
 
     def _save_cloud_devices_to_database(self, cloud_devices: List[Dict]) -> int:
@@ -415,38 +434,43 @@ class APISync:
             if cloud_device_id:
                 assigned_device = self.device_repo.get_by_cloud_id(cloud_device_id)
 
+            # API returns "card" (not "card_number")
+            card_value = user_data.get('card') or user_data.get('card_number')
+
             if not existing_user:
                 # Create new user
                 user = User(
                     name=user_data.get('name', ''),
-                    user_type=user_data.get('type', 'STUDENT'), # Maps to 'type' in new JSON
-                    role=user_data.get('role', 0), # Default to 0 (USER) if not sent
+                    user_type=user_data.get('type', 'STUDENT'),
+                    role=user_data.get('role', 0),
                     password=user_data.get('password', ''),
                     group_id=user_data.get('group_id', ''),
                     user_id=str(user_data.get('id', '')),
-                    card=user_data.get('card_number'), # Maps to 'card_number' in new JSON
-                    device_code=user_data.get('device_code'), # Keep handling if present, or None
-                    device=assigned_device, # Set foreign key to correct machine
+                    card=card_value,
+                    device_code=user_data.get('device_code'),
+                    device=assigned_device,
                     saved_to_device=False
                 )
                 user.save()
                 saved_count += 1
-                self.logger.debug(f"Created new user: {user.name} ({user.user_id}) for device: {assigned_device.ip_address if assigned_device else 'Unassigned'}")
+                self.logger.debug(
+                    f"Created new user: {user.name} ({user.user_id}) "
+                    f"card={card_value} device={assigned_device.ip_address if assigned_device else 'Unassigned'}"
+                )
             else:
                 # Update existing user
                 existing_user.name = user_data.get('name', existing_user.name)
-                existing_user.user_type = user_data.get('type', existing_user.user_type) # Maps to 'type'
-                existing_user.device = assigned_device # Update machine assignment if changed in cloud
+                existing_user.user_type = user_data.get('type', existing_user.user_type)
+                existing_user.device = assigned_device
                 existing_user.role = user_data.get('role', existing_user.role)
                 existing_user.password = user_data.get('password', existing_user.password)
                 existing_user.group_id = user_data.get('group_id', existing_user.group_id)
-                existing_user.card = user_data.get('card_number', existing_user.card) # Maps to 'card_number'
+                existing_user.card = card_value if card_value is not None else existing_user.card
                 existing_user.device_code = user_data.get('device_code', existing_user.device_code)
-                # Ensure the canonical cloud ID is set
                 existing_user.user_id = str(user_data.get('id', existing_user.user_id))
                 existing_user.save()
                 saved_count += 1
-                self.logger.debug(f"Updated existing user: {existing_user.name} ({existing_user.user_id})")
+                self.logger.debug(f"Updated existing user: {existing_user.name} ({existing_user.user_id}) card={card_value}")
         return saved_count
 
     def close(self):

@@ -151,54 +151,49 @@ class DashboardContent:
 
     def _create_recent_activity_section(self, parent_layout):
         """Create recent activity section."""
-        group_box = QGroupBox("Recent Activity")
+        group_box = QGroupBox("Recent Activity (last 10 pending records)")
         group_layout = QVBoxLayout(group_box)
 
-        # Get recent activity (last 10 records)
-        # Use existing attendance repo method for formatted data
+        # Use get_recent() which applies LIMIT at the SQL level — avoids loading the entire table.
         try:
-            # We want pending records first as they are "active"
-            attendance_data = self.dashboard_gui.attendance_repo.cloud_format()[:10]
+            attendance_data = self.dashboard_gui.attendance_repo.get_recent(limit=10)
         except Exception:
             attendance_data = []
 
         if not attendance_data:
-            activity_label = QLabel("No recent activity")
+            activity_label = QLabel("No recent pending activity")
             activity_label.setAlignment(Qt.AlignCenter)
             group_layout.addWidget(activity_label)
         else:
             from PySide6.QtWidgets import QTableWidget, QTableWidgetItem, QHeaderView
-            
-            # Create table
+
             table = QTableWidget()
             table.setColumnCount(5)
-            table.setHorizontalHeaderLabels(["Cloud ID", "Date", "User", "Status", "Device"])
+            table.setHorizontalHeaderLabels(["Cloud ID", "Date/Time", "User Type", "Status", "Device"])
             table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
             table.verticalHeader().setVisible(False)
             table.setRowCount(len(attendance_data))
-            
+
             for row, record in enumerate(attendance_data):
                 table.setItem(row, 0, QTableWidgetItem(str(record.get('user_id', ''))))
                 table.setItem(row, 1, QTableWidgetItem(record.get('timestamp', '')))
-                
-                # Format user info
-                user_info = "Unknown"
+
                 if record.get('is_student'):
                     user_info = "Student"
                 elif record.get('is_teacher'):
-                    user_info = "Teacher" 
+                    user_info = "Teacher"
                 elif record.get('is_staff'):
                     user_info = "Staff"
+                else:
+                    user_info = "Unknown"
                 table.setItem(row, 2, QTableWidgetItem(user_info))
-                
-                table.setItem(row, 3, QTableWidgetItem(record.get('status', '')))
+
+                table.setItem(row, 3, QTableWidgetItem(str(record.get('status', ''))))
                 table.setItem(row, 4, QTableWidgetItem(str(record.get('device', ''))))
-                
+
             group_layout.addWidget(table)
 
-        parent_layout.addWidget(group_box)
-
-        parent_layout.addWidget(group_box)
+        parent_layout.addWidget(group_box)  # Added exactly once
 
     def _get_device_statistics(self):
         """Get device statistics."""

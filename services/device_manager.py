@@ -174,44 +174,51 @@ class DeviceManager:
         """Save attendance records to database with batch processing and duplicate prevention."""
         if not attendance_records:
             return 0
-        
+
         from datetime import timezone
-            
+
+        # --- Batch user lookup (eliminates N+1 DB queries) ---
+        # Collect all unique user_ids from the records, then fetch in a single IN query.
+        unique_user_ids = {str(getattr(r, 'user_id', '')) for r in attendance_records}
+        user_map: dict = {}  # user_id_str -> User
+        for uid_str in unique_user_ids:
+            if uid_str:
+                db_user = self.user_repo.get_by_user_id(uid_str)
+                if db_user:
+                    user_map[uid_str] = db_user
+                else:
+                    self.logger.warning(
+                        f"User with cloud ID '{uid_str}' not found for attendance record. "
+                        f"User should be synced from cloud first. Skipping their records."
+                    )
+
         saved_count = 0
-        batch_size = 200  # Process attendance in larger batches
-        
-        # Process attendance in batches for better performance
+        batch_size = 200
+
         for i in range(0, len(attendance_records), batch_size):
             batch = attendance_records[i:i + batch_size]
             batch_attendance = []
-            
+
             for record in batch:
-                # Match user by user_id (cloud ID) - device returns user_id which should be cloud ID
                 raw_user_id = str(getattr(record, 'user_id', ''))
-                db_user = self.user_repo.get_by_user_id(raw_user_id)
+                db_user = user_map.get(raw_user_id)
 
                 if not db_user:
-                    self.logger.warning(
-                        f"User with cloud ID '{raw_user_id}' not found for attendance record. "
-                        f"User should be synced from cloud first. Skipping attendance record."
-                    )
-                    continue
+                    continue  # Already warned during pre-fetch above
 
-                # Check for duplicate attendance record (basic deduplication)
+                # Normalise timestamp
                 record_timestamp = getattr(record, 'timestamp', None)
                 if record_timestamp:
-                    # Ensure timezone aware - assume UTC if naive
                     if record_timestamp.tzinfo is None:
                         record_timestamp = record_timestamp.replace(tzinfo=timezone.utc)
-                    
-                    existing_attendance = self.attendance_repo.get_by_device_user_timestamp(
+
+                    # Deduplication check
+                    if self.attendance_repo.get_by_device_user_timestamp(
                         device, db_user, record_timestamp
-                    )
-                    if existing_attendance:
-                        continue  # Skip duplicate
-                
-                # Prepare attendance data for batch insert
-                attendance_data = {
+                    ):
+                        continue
+
+                batch_attendance.append({
                     'user': db_user,
                     'device': device,
                     'timestamp': record_timestamp,
@@ -219,14 +226,12 @@ class DeviceManager:
                     'punch': getattr(record, 'punch', ''),
                     'uid': getattr(record, 'uid', None),
                     'posted': False,
-                }
-                batch_attendance.append(attendance_data)
-            
-            # Bulk insert attendance records
+                })
+
             if batch_attendance:
                 saved_count += self.attendance_repo.create_bulk(batch_attendance)
                 self.logger.debug(f"Batch inserted {len(batch_attendance)} attendance records")
-        
+
         self.logger.info(f"Processed {len(attendance_records)} attendance records: {saved_count} saved")
         return saved_count
 
@@ -285,24 +290,22 @@ class DeviceManager:
         """Migrate users from database to devices."""
         self.logger.info("Starting user migration to devices")
         devices = self._get_all_devices()
-        
-        # Debug: Check if devices is actually a list
+
         if not isinstance(devices, list):
             self.logger.error(f"Expected list but got {type(devices)}: {devices}")
             self.notification_service.notify(
                 "Sync Users", "Invalid device data type", "error"
             )
             return
-        
+
         if not devices:
             self.notification_service.notify(
                 "Sync Users", "No devices found to sync users to", "warning"
             )
             return
 
-        # Get all users from database
-        users = self.user_repo.get_all()
-        if not users:
+        # Early check: ensure at least one user exists before connecting to any device.
+        if not self.user_repo.get_all():
             self.notification_service.notify(
                 "Sync Users", "No users found in database", "warning"
             )
@@ -312,20 +315,19 @@ class DeviceManager:
         total_devices = len(devices)
 
         for device in devices:
-            # Get users assigned to THIS specific device
-            users = self.user_repo.get_by_device(device.id)
-            if not users:
+            # Get users assigned to THIS specific device (separate variable — no shadowing).
+            device_users = self.user_repo.get_by_device(device.id)
+            if not device_users:
                 self.logger.info(f"No users assigned to device {device.ip_address}, skipping upload.")
                 continue
 
-            zk = None
             zk = self._process_device_connection(device)
             if not zk:
                 continue
 
             # Migrate users to device
             device_migrated_ids = []
-            for user in users:
+            for user in device_users:
                 # Handle None values for optional fields
                 card_value = user.card if user.card is not None else 0
                 group_id_value = user.group_id if user.group_id is not None else 0

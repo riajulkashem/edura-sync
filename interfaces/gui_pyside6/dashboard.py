@@ -68,19 +68,20 @@ class DashboardGUI:
         # Timer for periodic updates
         self.refresh_timer = None
 
+    # Tab order as created in _create_main_window:
+    #   0 = Dashboard, 1 = Device Management, 2 = Settings, 3 = About
+    TAB_SETTINGS = 2
+
     def show_dashboard(self, first_run=False):
         """Show or update the main dashboard window."""
-        # Create main window if it doesn't exist
         if self.main_window is None:
             self._create_main_window()
-        # Show the window and bring it to front
         self.main_window.show()
         self.main_window.raise_()
         self.main_window.activateWindow()
 
-        # Select settings tab on first run
         if first_run:
-            self.tab_widget.setCurrentIndex(1)  # Settings tab
+            self.tab_widget.setCurrentIndex(self.TAB_SETTINGS)
 
     def hide_dashboard(self):
         """Hide the dashboard window instead of destroying it."""
@@ -135,12 +136,7 @@ class DashboardGUI:
 
     def _on_tab_changed(self, index):
         """Handle tab change events."""
-        # Index 2 is typically Settings (Dashboard[0], Device[1], Settings[2])
-        # But we check for the settings widget itself to be safe
-        active_widget = self.tab_widget.widget(index)
-        # Check if settings_manager's widget is active
-        # We need a way to identify it or just refresh always on index matching
-        if index == 2: # Settings tab
+        if index == self.TAB_SETTINGS:
             self.settings_manager._update_device_list()
 
     def _minimize_to_tray(self):

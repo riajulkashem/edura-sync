@@ -1,5 +1,5 @@
 from peewee import DoesNotExist, fn
-from interfaces.database.models import Device, User, Attendance, Settings
+from interfaces.database.models import Device, User, Attendance, Settings, db
 from interfaces.database.base_repository import BaseRepository
 from core.exceptions import DatabaseError  # noqa: F401
 from typing import List, Dict, Optional
@@ -27,6 +27,40 @@ class DeviceRepository(BaseRepository):
         Get device by cloud_id field.
         """
         return self.get(cloud_id=cloud_id)
+
+    def delete_cascade(self, device: Device) -> bool:
+        """
+        Delete a device and all of its dependent records in the correct order:
+          1. Attendance rows that reference this device directly
+          2. Attendance rows that belong to users of this device
+          3. User rows that belong to this device
+          4. The device itself
+
+        All steps run inside a single atomic transaction so the DB is never left
+        in a partially-deleted state.
+
+        Returns:
+            True if the device was deleted, False otherwise.
+        """
+        with db.atomic():
+            # 1. Attendance rows linked to this device via their own device FK
+            att_del = Attendance.delete().where(Attendance.device == device).execute()
+            self.logger.info(f"Cascade-deleted {att_del} attendance rows (device FK) for device {device.ip_address}")
+
+            # 2. Attendance rows belonging to users of this device
+            user_ids = [u.id for u in User.select(User.id).where(User.device == device)]
+            if user_ids:
+                att_usr_del = Attendance.delete().where(Attendance.user.in_(user_ids)).execute()
+                self.logger.info(f"Cascade-deleted {att_usr_del} attendance rows (user FK) for device {device.ip_address}")
+
+            # 3. Users belonging to this device
+            usr_del = User.delete().where(User.device == device).execute()
+            self.logger.info(f"Cascade-deleted {usr_del} users for device {device.ip_address}")
+
+            # 4. The device itself
+            deleted = device.delete_instance()
+            self.logger.info(f"Deleted device {device.ip_address} (rows affected: {deleted})")
+            return deleted == 1
 
     def clear_cache(self):
         """Clear the device cache."""
@@ -106,38 +140,37 @@ class UserRepository(BaseRepository):
         """
         Get user by user_id field with index optimization.
         Uses caching with TTL for frequently accessed users.
+        Negative lookups (user not found) are also cached to avoid repeated DB hits
+        during attendance processing when many device records have no matching cloud user.
         Raises:
             DatabaseError: If a database error occurs.
         """
         from datetime import datetime
-        
-        # Check cache first
-        if user_id in self._user_cache:
-            # Check if entry is still valid (within TTL)
-            cache_time = self._cache_timestamps.get(user_id)
-            if cache_time and (datetime.now() - cache_time).total_seconds() < self._cache_ttl:
-                return self._user_cache[user_id]
-            else:
-                # Expired, remove from cache
-                del self._user_cache[user_id]
-                del self._cache_timestamps[user_id]
-        
+
+        _MISSING = object.__new__(object)  # sentinel stored once at module level would be cleaner
+        # Use a module-level sentinel to distinguish "cached None" from "not cached".
+        # We store None directly and use the timestamps dict as the presence indicator.
+        if user_id in self._cache_timestamps:
+            cache_time = self._cache_timestamps[user_id]
+            if (datetime.now() - cache_time).total_seconds() < self._cache_ttl:
+                return self._user_cache.get(user_id)  # returns None for negative cache entries
+            # Expired — evict
+            self._user_cache.pop(user_id, None)
+            del self._cache_timestamps[user_id]
+
         # Fetch from database
         user = self.get(user_id=user_id)
-        
-        # Cache the result
-        if user:
-            # Enforce max cache size
-            if len(self._user_cache) >= self._max_cache_size:
-                # Remove oldest entry
-                if self._cache_timestamps:
-                    oldest_key = min(self._cache_timestamps, key=self._cache_timestamps.get)
-                    del self._user_cache[oldest_key]
-                    del self._cache_timestamps[oldest_key]
-            
-            self._user_cache[user_id] = user
-            self._cache_timestamps[user_id] = datetime.now()
-        
+
+        # Enforce max cache size (evict oldest)
+        if len(self._cache_timestamps) >= self._max_cache_size:
+            oldest_key = min(self._cache_timestamps, key=self._cache_timestamps.get)
+            self._user_cache.pop(oldest_key, None)
+            del self._cache_timestamps[oldest_key]
+
+        # Cache both hits AND misses (None) so repeated lookups for unknown users are cheap.
+        self._user_cache[user_id] = user
+        self._cache_timestamps[user_id] = datetime.now()
+
         return user
 
     def get_unsaved_to_device(self, device_id: Optional[int] = None) -> List[User]:
@@ -169,54 +202,47 @@ class UserRepository(BaseRepository):
 
     def get_user_stats(self) -> Dict[str, int]:
         """
-        Get user statistics efficiently.
-        
+        Get user statistics in two queries instead of the previous four.
+
+        Query 1: GROUP BY user_type to get per-type counts and a total.
+        Query 2: COUNT saved_to_device = True.
+
         Returns:
             Dictionary with user counts by type and status
         """
-        # Get total users
-        total_users = self.model.select().count()
-        
-        # Get users by type
-        user_types = (
-            self.model.select(
-                self.model.user_type,
-                fn.COUNT(self.model.id).alias('count')
-            )
-            .group_by(self.model.user_type)
-        )
-        
-        # Get users by saved status
-        saved_count = (
-            self.model.select(fn.COUNT(self.model.id))
-            .where(self.model.saved_to_device)
-            .scalar()
-        )
-        
-        unsaved_count = (
-            self.model.select(fn.COUNT(self.model.id))
-            .where(~self.model.saved_to_device)
-            .scalar()
-        )
-        
         result = {
-            "total": total_users,
+            "total": 0,
             "students": 0,
             "teachers": 0,
             "staff": 0,
-            "saved_to_device": saved_count or 0,
-            "unsaved_to_device": unsaved_count or 0
+            "saved_to_device": 0,
+            "unsaved_to_device": 0,
         }
-        
-        # Count by user type
-        for user_type in user_types:
-            if user_type.user_type == 'STUDENT':
-                result["students"] = user_type.count
-            elif user_type.user_type == 'TEACHER':
-                result["teachers"] = user_type.count
-            elif user_type.user_type == 'STAFF':
-                result["staff"] = user_type.count
-        
+
+        # Single GROUP BY query covers total + per-type counts.
+        for row in (
+            self.model.select(
+                self.model.user_type,
+                fn.COUNT(self.model.id).alias("count"),
+            ).group_by(self.model.user_type)
+        ):
+            result["total"] += row.count
+            if row.user_type == "STUDENT":
+                result["students"] = row.count
+            elif row.user_type == "TEACHER":
+                result["teachers"] = row.count
+            elif row.user_type == "STAFF":
+                result["staff"] = row.count
+
+        # Single query for saved/unsaved split.
+        saved = (
+            self.model.select(fn.COUNT(self.model.id))
+            .where(self.model.saved_to_device)
+            .scalar() or 0
+        )
+        result["saved_to_device"] = saved
+        result["unsaved_to_device"] = result["total"] - saved
+
         return result
 
     def mark_as_saved_to_device(self, user_ids: List[int]) -> int:
@@ -318,62 +344,107 @@ class AttendanceRepository(BaseRepository):
         self._pending_cache = None
         return result
 
+    def _format_record(self, record) -> Optional[Dict]:
+        """
+        Convert a single Attendance ORM record to the cloud API payload dict.
+        Returns None if the record cannot be formatted (e.g. missing device).
+        """
+        user = record.user
+        device = record.device
+
+        if device is None:
+            self.logger.warning(
+                f"Attendance record id={record.id} has no associated device. Skipping."
+            )
+            return None
+
+        # Use cloud_id for device; fallback to local id with a warning.
+        if device.cloud_id is not None:
+            device_id = device.cloud_id
+        else:
+            device_id = device.id
+            self.logger.warning(
+                f"Device {device.ip_address} (id={device.id}) has no cloud_id. Using local id {device.id}."
+            )
+
+        # Normalise timestamp to datetime if it arrived as a string.
+        ts = record.timestamp
+        if isinstance(ts, str):
+            try:
+                from dateutil import parser as _dp
+                ts = _dp.parse(ts)
+            except ImportError:
+                from datetime import datetime as _dt
+                try:
+                    ts = _dt.fromisoformat(ts.split(".")[0])
+                except Exception:
+                    pass
+
+        return {
+            "device": device_id,
+            "user_id": user.user_id,
+            "timestamp": ts.strftime("%Y-%m-%d %H:%M:%S"),
+            "status": str(record.status),
+            "punch": str(record.punch),
+            "is_student": user.user_type == "STUDENT",
+            "is_teacher": user.user_type == "TEACHER",
+            "is_staff": user.user_type == "STAFF",
+            "id": record.id,
+        }
+
     def cloud_format(self) -> List[Dict]:
         """
-        Format attendance data for cloud API with optimized query.
-        Uses joins to reduce database queries and includes readable status/punch values.
+        Format ALL pending attendance records for the cloud API.
+        Uses a JOIN to fetch user data in a single query.
         Raises:
             DatabaseError: If a database error occurs.
         """
-        # Use join to get user data in single query
         pending_records = (
             self.model.select(self.model, User)
             .join(User)
             .where(~self.model.posted)
             .order_by(self.model.timestamp.desc())
         )
-        
+
         formatted_data = []
         for record in pending_records:
-            user = record.user
-            device = record.device
-            
-            # Use cloud_id for device, fallback to local id if cloud_id is not set
-            device_id = device.cloud_id if device.cloud_id is not None else device.id
-            if device.cloud_id is None:
-                self.logger.warning(
-                    f"Device {device.ip_address} (id={device.id}) has no cloud_id. Using local id {device.id}."
-                )
-            
-            # Format timestamp safely
-            ts = record.timestamp
-            if isinstance(ts, str):
-                try:
-                    from dateutil import parser
-                    ts = parser.parse(ts)
-                except ImportError:
-                    from datetime import datetime
-                    try:
-                        ts = datetime.fromisoformat(ts.split('.')[0]) # Basic fallback
-                    except Exception:
-                        pass
+            item = self._format_record(record)
+            if item is not None:
+                self.logger.debug(f"Formatted attendance record: {item}")
+                formatted_data.append(item)
 
-            formatted_record = {
-                "device": device_id,
-                "user_id": user.user_id,  # This should be the cloud ID (numeric string like "7596")
-                "timestamp": ts.strftime('%Y-%m-%d %H:%M:%S'),
-                "status": str(record.status),
-                "punch": str(record.punch),
-                "is_student": user.user_type == 'STUDENT',
-                "is_teacher": user.user_type == 'TEACHER',
-                "is_staff": user.user_type == 'STAFF',
-                # Internal ID for post-processing
-                "id": record.id
-            }
-            self.logger.debug(f"Formatted attendance record: {formatted_record}")
-            formatted_data.append(formatted_record)
-            
         return formatted_data
+
+    def get_recent(self, limit: int = 10) -> List[Dict]:
+        """
+        Return the most recent *pending* attendance records formatted for display.
+        Applies LIMIT at the SQL level so the full table is never loaded for UI purposes.
+        """
+        recent_records = (
+            self.model.select(self.model, User)
+            .join(User)
+            .where(~self.model.posted)
+            .order_by(self.model.timestamp.desc())
+            .limit(limit)
+        )
+
+        result = []
+        for record in recent_records:
+            item = self._format_record(record)
+            if item is not None:
+                result.append(item)
+        return result
+
+    def get_all_with_user(self) -> list:
+        """
+        Return all attendance records with user data pre-fetched (single JOIN query).
+        Used by the Attendance screen for the full filterable table.
+        """
+        return list(
+            self.model.select(self.model, User)
+            .join(User)
+            .order_by(self.model.timestamp.desc())
+        )
 
     def cleanup_posted_attendance(self, days_old=1) -> int:
         """
@@ -397,27 +468,30 @@ class AttendanceRepository(BaseRepository):
         return deleted
 
 
+_SETTINGS_NOT_CACHED = object()  # Sentinel distinguishing "no cache" from "cached None"
+
+
 class SettingsRepository(BaseRepository):
     """Repository for Settings model operations."""
-    
+
     def __init__(self):
         super().__init__(Settings)
-        self._settings_cache = None
+        self._settings_cache = _SETTINGS_NOT_CACHED  # Use sentinel, not None
 
     def get_settings(self):
         """
         Get the first (and only) settings record.
         Implements caching for better performance.
+        Both a found record AND a missing record (None) are cached so that
+        repeated calls before default settings are created don't hit the DB.
         Raises:
             DatabaseError: If a database error occurs.
         """
-        # Return cached settings if available
-        if self._settings_cache:
+        if self._settings_cache is not _SETTINGS_NOT_CACHED:
             return self._settings_cache
-            
+
         settings = self.get()
-        # Cache the result
-        self._settings_cache = settings
+        self._settings_cache = settings  # Cache hit or None
         return settings
 
     def save_settings(self, **data):
@@ -431,13 +505,12 @@ class SettingsRepository(BaseRepository):
         if settings:
             result = self.update(settings, **data)
         else:
-            # Remove timestamp fields from data if they're None, let the model handle them
-            if 'created_at' in data and data['created_at'] is None:
-                del data['created_at']
-            if 'updated_at' in data and data['updated_at'] is None:
-                del data['updated_at']
+            if "created_at" in data and data["created_at"] is None:
+                del data["created_at"]
+            if "updated_at" in data and data["updated_at"] is None:
+                del data["updated_at"]
             result = self.create(**data)
-        
-        # Clear cache when settings are updated
-        self._settings_cache = None
+
+        # Reset cache so the next read fetches the fresh record.
+        self._settings_cache = _SETTINGS_NOT_CACHED
         return result

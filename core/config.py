@@ -85,28 +85,35 @@ class Config:
             d.mkdir(parents=True, exist_ok=True)
 
     def _setup_logging(self) -> None:
-        """Configure logging with file and console handlers."""
-        # Determine log file path
+        """
+        Ensure logging is configured.
+
+        setup_early_logging() in main.py runs before Config is instantiated and
+        already sets up file + console handlers on the root logger.  Adding more
+        handlers here would cause every log line to be written multiple times, so
+        we skip re-configuration if handlers are already present.
+        """
+        root_logger = logging.getLogger()
+        if root_logger.handlers:
+            # Handlers were already configured by setup_early_logging() — skip.
+            return
+
+        # Fallback: configure logging when Config is used outside of main.py
+        # (e.g. tests or scripts that do not call setup_early_logging()).
         if getattr(sys, "frozen", False):
             log_file = str(self.LOG_FILE)
         else:
             log_file = "logs/edurasync.log"
 
-        # File handler (5 MB rotating logs, 5 backups)
         file_handler = RotatingFileHandler(
-            log_file, maxBytes=5*1024*1024, backupCount=5, encoding='utf-8'
+            log_file, maxBytes=5 * 1024 * 1024, backupCount=5, encoding='utf-8'
         )
-        file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+        file_handler.setFormatter(
+            logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        )
 
-        # Console handler
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
-
-        # Root logger
-        root_logger = logging.getLogger()
         root_logger.setLevel(logging.INFO)
         root_logger.addHandler(file_handler)
-        root_logger.addHandler(console_handler)
 
     @staticmethod
     def _test_writable_dir(path: Path) -> bool:
