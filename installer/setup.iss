@@ -40,17 +40,20 @@ DisableProgramGroupPage=yes
 WizardStyle=modern
 WizardSizePercent=120,110
 WizardResizable=no
-WizardImageFile=installer\wizard_sidebar.bmp
-WizardSmallImageFile=installer\wizard_header.bmp
-SetupIconFile=assets\icon.png
+; Paths are relative to this .iss file (installer\), so no prefix needed for
+; BMPs (same dir) and ..\ for assets one level up.
+WizardImageFile=wizard_sidebar.bmp
+WizardSmallImageFile=wizard_header.bmp
+SetupIconFile=..\assets\icon.png
 
 ; Pages
 DisableWelcomePage=no
 DisableReadyPage=no
 DisableFinishedPage=no
 
-; Output
-OutputDir=installer\output
+; Output — relative to this .iss file location (installer\), so "output"
+; resolves to installer\output\ in the repo root.
+OutputDir=output
 OutputBaseFilename={#MyAppName}-Setup-{#MyAppVersion}
 Compression=lzma2/ultra64
 SolidCompression=yes
