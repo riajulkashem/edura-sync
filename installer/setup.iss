@@ -85,8 +85,8 @@ english.FinishedHeadingLabel=Completing the [name] Setup Wizard
 
 ; ── [Tasks] ──────────────────────────────────────────────────────────────────
 [Tasks]
-Name: "desktopicon";  Description: "Create a &desktop shortcut";              GroupDescription: "Shortcuts:";       Flags: checked
-Name: "startmenu";    Description: "Create a &Start Menu entry";              GroupDescription: "Shortcuts:";       Flags: checked
+Name: "desktopicon";  Description: "Create a &desktop shortcut";              GroupDescription: "Shortcuts:"
+Name: "startmenu";    Description: "Create a &Start Menu entry";              GroupDescription: "Shortcuts:"
 Name: "startup";      Description: "Launch {#MyAppName} when &Windows starts (system tray)"; GroupDescription: "On system start:"; Flags: unchecked
 
 ; ── [Files] ──────────────────────────────────────────────────────────────────
