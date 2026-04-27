@@ -44,7 +44,7 @@ WizardResizable=no
 ; BMPs (same dir) and ..\ for assets one level up.
 WizardImageFile=wizard_sidebar.bmp
 WizardSmallImageFile=wizard_header.bmp
-SetupIconFile=..\assets\icon.png
+SetupIconFile=app_icon.ico
 
 ; Pages
 DisableWelcomePage=no

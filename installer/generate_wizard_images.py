@@ -4,6 +4,7 @@ Generate Inno Setup wizard images for EduraSync installer.
 Outputs (in the same directory as this script):
   wizard_sidebar.bmp   164 x 314  — Welcome / Finish page left panel
   wizard_header.bmp     55 x  55  — Inner-page top-right icon
+  app_icon.ico          multi-size — Setup executable icon
 
 Run from the repo root:
   python installer/generate_wizard_images.py
@@ -197,6 +198,15 @@ def make_header(icon_path: Path, out_path: Path) -> None:
     print(f"  Wrote {out_path}  ({W}×{H})")
 
 
+def make_setup_icon(icon_path: Path, out_path: Path) -> None:
+    # Inno Setup requires a valid .ico for SetupIconFile.
+    # Generate a multi-resolution ICO from the source PNG.
+    icon = Image.open(icon_path).convert("RGBA")
+    sizes = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
+    icon.save(str(out_path), format="ICO", sizes=sizes)
+    print(f"  Wrote {out_path}  (ICO sizes: {', '.join(f'{w}x{h}' for w, h in sizes)})")
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -211,6 +221,7 @@ def main() -> None:
     print("Generating Inno Setup wizard images…")
     make_sidebar(icon, logo, OUT / "wizard_sidebar.bmp")
     make_header(icon,        OUT / "wizard_header.bmp")
+    make_setup_icon(icon,    OUT / "app_icon.ico")
     print("Done.")
 
 
