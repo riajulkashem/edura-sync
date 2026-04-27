@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLabel, QPushButton, QLineEdit, QTimeEdit, QComboBox,
@@ -38,6 +39,12 @@ class SettingsScreen(QWidget):
         self.device_repo   = DeviceRepository()
 
         self._form: dict[str, QWidget] = {}
+
+        # Windows service management (None on non-Windows)
+        self._service_manager = None
+        self._service_status_lbl: QLabel | None = None
+        self._service_toggle_btn: QPushButton | None = None
+
         self._setup_ui()
         self._load_settings()
 
@@ -176,6 +183,10 @@ class SettingsScreen(QWidget):
 
         layout.addWidget(setup_card)
 
+        # ── Windows Background Service (Windows only) ─────────────────────────
+        if sys.platform.startswith("win"):
+            layout.addWidget(self._build_service_group())
+
         # ── Separator ─────────────────────────────────────────────────────────
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
@@ -223,6 +234,161 @@ class SettingsScreen(QWidget):
         layout.addStretch()
 
         self._refresh_device_combo()
+
+    # ── Windows Service helpers ───────────────────────────────────────────────
+
+    def _build_service_group(self) -> QGroupBox:
+        """Build the Windows Service management group (Windows-only)."""
+        from services.service_manager import ServiceManager
+        self._service_manager = ServiceManager()
+
+        t = tokens()
+        group = QGroupBox("Background Service  (Windows)")
+        lv = QVBoxLayout(group)
+        lv.setContentsMargins(SPACE_MD, SPACE_LG, SPACE_MD, SPACE_MD)
+        lv.setSpacing(SPACE_MD)
+
+        desc = QLabel(
+            "Run EduraSync as a Windows Service so attendance syncs in the background "
+            "even when the app window is closed. You will be prompted for administrator "
+            "permission when enabling or disabling."
+        )
+        desc.setWordWrap(True)
+        desc.setStyleSheet(
+            f"font-size: 11px; color: {t['text_secondary']}; background: transparent;"
+        )
+        lv.addWidget(desc)
+
+        ctrl = QHBoxLayout()
+        ctrl.setSpacing(SPACE_SM)
+
+        self._service_status_lbl = QLabel("Checking…")
+        self._service_status_lbl.setStyleSheet(
+            f"font-weight: 600; font-size: 12px; color: {t['text_secondary']}; background: transparent;"
+        )
+        ctrl.addWidget(self._service_status_lbl, stretch=1)
+
+        self._service_toggle_btn = QPushButton("Enable Service")
+        self._service_toggle_btn.setMinimumWidth(140)
+        self._service_toggle_btn.clicked.connect(self._toggle_service)
+        ctrl.addWidget(self._service_toggle_btn)
+
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.setMaximumWidth(80)
+        refresh_btn.setToolTip("Re-check service status")
+        refresh_btn.clicked.connect(self._update_service_status)
+        ctrl.addWidget(refresh_btn)
+
+        lv.addLayout(ctrl)
+        self._update_service_status()
+        return group
+
+    def _update_service_status(self) -> None:
+        """Refresh the service status label and toggle-button text/style."""
+        if self._service_manager is None or self._service_status_lbl is None:
+            return
+        t = tokens()
+        status = self._service_manager.get_service_status()
+
+        if status == "not_installed":
+            self._service_status_lbl.setText("❌  Service: Not Installed")
+            self._service_status_lbl.setStyleSheet(
+                f"font-weight: 600; font-size: 12px; color: {t['danger']}; background: transparent;"
+            )
+            self._service_toggle_btn.setText("Enable Service")
+            self._service_toggle_btn.setProperty("variant", "primary")
+        elif status == "running":
+            self._service_status_lbl.setText("✅  Service: Running")
+            self._service_status_lbl.setStyleSheet(
+                f"font-weight: 600; font-size: 12px; color: {t['success']}; background: transparent;"
+            )
+            self._service_toggle_btn.setText("Disable Service")
+            self._service_toggle_btn.setProperty("variant", "danger")
+        elif status == "stopped":
+            self._service_status_lbl.setText("⚠  Service: Stopped")
+            self._service_status_lbl.setStyleSheet(
+                f"font-weight: 600; font-size: 12px; color: {t['warning']}; background: transparent;"
+            )
+            self._service_toggle_btn.setText("Enable Service")
+            self._service_toggle_btn.setProperty("variant", "primary")
+        else:
+            self._service_status_lbl.setText("❓  Service: Unknown")
+            self._service_status_lbl.setStyleSheet(
+                f"font-weight: 600; font-size: 12px; color: {t['text_secondary']}; background: transparent;"
+            )
+            self._service_toggle_btn.setText("Enable Service")
+            self._service_toggle_btn.setEnabled(False)
+
+        # Force Qt to re-apply the variant style
+        self._service_toggle_btn.style().unpolish(self._service_toggle_btn)
+        self._service_toggle_btn.style().polish(self._service_toggle_btn)
+
+    def _toggle_service(self) -> None:
+        if self._service_manager is None:
+            return
+        status = self._service_manager.get_service_status()
+        if status == "not_installed" or status == "stopped":
+            self._install_service()
+        else:
+            self._uninstall_service()
+
+    def _install_service(self) -> None:
+        reply = QMessageBox.question(
+            self,
+            "Enable Background Service",
+            "Install EduraSync as a Windows Service?\n\n"
+            "You will be prompted for administrator permission.\n"
+            "The service will sync attendance data automatically in the background.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self._service_toggle_btn.setEnabled(False)
+        self._service_toggle_btn.setText("Installing…")
+        try:
+            success, message = self._service_manager.install_service()
+            if success:
+                QMessageBox.information(self, "Service Enabled", message)
+                self.logger.info(f"Service installed: {message}")
+            else:
+                QMessageBox.warning(self, "Installation Failed", message)
+                self.logger.error(f"Service installation failed: {message}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
+            self.logger.error(f"Service install exception: {e}")
+        finally:
+            self._service_toggle_btn.setEnabled(True)
+            self._update_service_status()
+
+    def _uninstall_service(self) -> None:
+        reply = QMessageBox.question(
+            self,
+            "Disable Background Service",
+            "Remove the EduraSync Windows Service?\n\n"
+            "You will be prompted for administrator permission.\n"
+            "Attendance will no longer sync automatically in the background.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self._service_toggle_btn.setEnabled(False)
+        self._service_toggle_btn.setText("Removing…")
+        try:
+            success, message = self._service_manager.uninstall_service()
+            if success:
+                QMessageBox.information(self, "Service Disabled", message)
+                self.logger.info(f"Service removed: {message}")
+            else:
+                QMessageBox.warning(self, "Removal Failed", message)
+                self.logger.error(f"Service removal failed: {message}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
+            self.logger.error(f"Service uninstall exception: {e}")
+        finally:
+            self._service_toggle_btn.setEnabled(True)
+            self._update_service_status()
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

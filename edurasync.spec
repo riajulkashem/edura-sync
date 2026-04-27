@@ -28,6 +28,8 @@ a = Analysis(
     binaries=[],
     datas=[
         (str(project_root / "assets"), "assets"),
+        # install_service.py is looked up at runtime by ServiceManager._get_service_script_path()
+        (str(project_root / "scripts"), "scripts"),
     ],
     hiddenimports=[
         # ── Core ──────────────────────────────────────────────────────────────
@@ -38,7 +40,6 @@ a = Analysis(
         "core.operation_manager",
         "core.utils",
         "core.validation",
-        "core.version",
 
         # ── Database layer ────────────────────────────────────────────────────
         "interfaces",
@@ -67,14 +68,8 @@ a = Analysis(
         "interfaces.gui_pyside6.widgets.sidebar",
         "interfaces.gui_pyside6.widgets.spinner",
         "interfaces.gui_pyside6.widgets.confirm_dialog",
-        # Legacy files still present in repo
-        "interfaces.gui_pyside6.dashboard",
-        "interfaces.gui_pyside6.dashboard_content",
-        "interfaces.gui_pyside6.dashboard_settings",
-        "interfaces.gui_pyside6.dashboard_status",
+        # Device management helpers
         "interfaces.gui_pyside6.device_management",
-        "interfaces.gui_pyside6.gui_utils",
-        "interfaces.gui_pyside6.ui_utils",
 
         # ── Services ──────────────────────────────────────────────────────────
         "services",
@@ -83,6 +78,7 @@ a = Analysis(
         "services.device_utils",
         "services.notification",
         "services.sync_workers",
+        "services.service_manager",
 
         # ── Peewee ORM ────────────────────────────────────────────────────────
         "peewee",
@@ -118,6 +114,14 @@ a = Analysis(
         "PySide6.QtGui",
         "PySide6.QtWidgets",
         "PySide6.QtNetwork",
+
+        # ── Windows service (pywin32) ─────────────────────────────────────────
+        # Only used at runtime on Windows; safe to list on all platforms.
+        "win32serviceutil",
+        "win32service",
+        "win32event",
+        "servicemanager",
+        "pywintypes",
 
         # ── Miscellaneous ─────────────────────────────────────────────────────
         "loguru",

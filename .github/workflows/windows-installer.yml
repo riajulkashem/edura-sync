@@ -47,7 +47,7 @@ jobs:
             }
           }
           # Install additional build dependencies
-          pip install pyinstaller pillow
+          pip install pyinstaller pillow numpy
           # Verify critical packages are installed (avoid Unicode in Windows console)
           Write-Host "Verifying installed packages..."
           python -c "import peewee; print('OK: peewee version:', peewee.__version__); print('OK: peewee path:', peewee.__file__)"
@@ -75,7 +75,6 @@ jobs:
           }
           echo "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           echo "FILE_SUFFIX=$fileSuffix" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          echo "version = '$version'" | Out-File -FilePath ./core/version.py -Encoding utf8
 
       - name: Build with PyInstaller
         run: |
@@ -107,67 +106,36 @@ jobs:
             Get-ChildItem "dist\EduraSync\_internal" | Where-Object { $_.Name -like "*peewee*" -or $_.Name -like "*playhouse*" } | Select-Object Name
           }
 
-      - name: Create credits file
+      - name: Generate installer wizard images
         run: |
-          echo "EduraSync - Attendance Synchronization System" | Out-File -FilePath CREDITS.txt -Encoding utf8
-          echo "Developed by Softzenix IT (softzenixbd.com)" | Out-File -FilePath CREDITS.txt -Append -Encoding utf8
+          # Pillow is already installed as a build dep; generate branded BMP assets
+          python installer/generate_wizard_images.py
 
       - name: Create Inno Setup installer
         run: |
-          $innoScript = @"
-          #define MyAppName "EduraSync"
-          #define MyAppVersion "${{ env.APP_VERSION }}"
-          #define MyAppPublisher "Softzenix IT"
-          #define MyAppExeName "EduraSync.exe"
-          
-          [Setup]
-          AppId={{EA3FCF1E-0EB9-4DEA-AB7A-ADE3D2B7AAF8}
-          AppName={#MyAppName}
-          AppVersion={#MyAppVersion}
-          AppPublisher={#MyAppPublisher}
-          DefaultDirName={autopf}\{#MyAppName}
-          OutputDir=installer
-          OutputBaseFilename={#MyAppName}-Setup-{#MyAppVersion}
-          Compression=lzma
-          SolidCompression=yes
-          WizardStyle=modern
-          PrivilegesRequired=admin
-          
-          [Files]
-          Source: "dist\EduraSync\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-          
-          [Icons]
-          Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-          Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
-          
-          [Tasks]
-          Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
-          
-          [Run]
-          Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
-          "@
-          
-          $innoScript | Out-File -FilePath ./installer.iss -Encoding utf8
-          
-          # Create placeholder files if missing to prevent Inno Setup errors
-          if (-not (Test-Path LICENSE)) { "MIT License" | Out-File -FilePath LICENSE }
-          if (-not (Test-Path README.md)) { "# EduraSync" | Out-File -FilePath README.md }
-          
-          # Run Inno Setup compiler
-          mkdir -Force installer
-          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' installer.iss
+          # Ensure output directory exists
+          New-Item -ItemType Directory -Force -Path installer\output | Out-Null
+
+          # Run the versioned .iss from the repo; version injected via /D define
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' `
+              /DMyAppVersion="${{ env.APP_VERSION }}" `
+              installer\setup.iss
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Inno Setup compiler failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
 
       - name: Generate Checksum
         shell: pwsh
         run: |
-          $installerPath = "installer/EduraSync-Setup-${{ env.APP_VERSION }}.exe"
+          $installerPath = "installer/output/EduraSync-Setup-${{ env.APP_VERSION }}.exe"
           if (Test-Path $installerPath) {
             $hash = (Get-FileHash $installerPath -Algorithm SHA256).Hash
-            echo "SHA256: $hash"
+            Write-Host "SHA256: $hash"
             $hash | Out-File -FilePath "$installerPath.sha256"
-            Write-Host "Checksum generated at $installerPath.sha256"
+            Write-Host "Checksum written to $installerPath.sha256"
           } else {
-            Write-Host "Installer not found, skipping checksum."
+            Write-Error "Installer not found at $installerPath"
             exit 1
           }
 
@@ -176,8 +144,8 @@ jobs:
         with:
           name: EduraSync-Windows-Installer
           path: |
-            installer/EduraSync-Setup-${{ env.APP_VERSION }}.exe
-            installer/EduraSync-Setup-${{ env.APP_VERSION }}.exe.sha256
+            installer/output/EduraSync-Setup-${{ env.APP_VERSION }}.exe
+            installer/output/EduraSync-Setup-${{ env.APP_VERSION }}.exe.sha256
 
       - name: Create Release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -188,8 +156,8 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            installer/EduraSync-Setup-${{ env.APP_VERSION }}.exe
-            installer/EduraSync-Setup-${{ env.APP_VERSION }}.exe.sha256
+            installer/output/EduraSync-Setup-${{ env.APP_VERSION }}.exe
+            installer/output/EduraSync-Setup-${{ env.APP_VERSION }}.exe.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -197,15 +165,14 @@ jobs:
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/headless')
         uses: softprops/action-gh-release@v2
         with:
-          # Point this to your public repository for downloads
           repository: riajulkashem/edura-sync
           name: EduraSync v${{ env.APP_VERSION }}${{ env.FILE_SUFFIX }}
           tag_name: v${{ env.APP_VERSION }}${{ env.FILE_SUFFIX }}
           draft: false
           prerelease: false
           files: |
-            installer/*.exe
-            installer/*.sha256
+            installer/output/*.exe
+            installer/output/*.sha256
         env:
           # Use the PAT that has access to the public repo
           # Create this secret in your repository settings: Settings > Secrets and variables > Actions
