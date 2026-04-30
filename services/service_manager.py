@@ -63,56 +63,17 @@ class ServiceManager:
             return False, "Windows platform required"
         
         try:
-            # Build command: python script.py arg1 arg2
-            cmd = f'python "{script_path}" {" ".join(args)}'
-            
-            # Use ShellExecuteEx to request elevation
-            # This will show the UAC prompt
-            sei = ctypes.Structure()
-            sei._fields_ = [
-                ("cbSize", wintypes.DWORD),
-                ("fMask", wintypes.c_ulong),
-                ("hwnd", wintypes.HANDLE),
-                ("lpVerb", wintypes.c_wchar_p),
-                ("lpFile", wintypes.c_wchar_p),
-                ("lpParameters", wintypes.c_wchar_p),
-                ("lpDirectory", wintypes.c_wchar_p),
-                ("nShow", wintypes.c_int),
-                ("hInstApp", wintypes.HANDLE),
-                ("lpIDList", wintypes.c_void_p),
-                ("lpClass", wintypes.c_wchar_p),
-                ("hkeyClass", wintypes.HANDLE),
-                ("dwHotKey", wintypes.DWORD),
-                ("hIcon", wintypes.HANDLE),
-                ("hProcess", wintypes.HANDLE),
-            ]
-            
-            sei.cbSize = ctypes.sizeof(sei)
-            sei.fMask = 0x00000040  # SEE_MASK_NOCLOSEPROCESS
-            sei.lpVerb = "runas"  # Request elevation
-            sei.lpFile = "python.exe"
-            sei.lpParameters = f'"{script_path}" {" ".join(args)}'
-            sei.nShow = 1  # SW_SHOWNORMAL
-            
-            result = ctypes.windll.shell.ShellExecuteEx(ctypes.byref(sei))
-            
-            if result:
-                # Wait for process to complete
-                if sei.hProcess:
-                    ctypes.windll.kernel32.WaitForSingleObject(sei.hProcess, 0xFFFFFFFF)
-                    
-                    # Get exit code
-                    exit_code = wintypes.DWORD()
-                    ctypes.windll.kernel32.GetExitCodeProcess(sei.hProcess, ctypes.byref(exit_code))
-                    ctypes.windll.kernel32.CloseHandle(sei.hProcess)
-                    
-                    success = exit_code.value == 0
-                    msg = "Service operation completed successfully" if success else "Service operation failed"
-                    return success, msg
-                else:
-                    return False, "Failed to start elevated process"
-            else:
-                return False, "Failed to request admin elevation (UAC might be disabled)"
+            # Request UAC elevation via ShellExecuteW.
+            # Avoids manual ctypes structure construction errors and works from GUI context.
+            python_exe = sys.executable or "python.exe"
+            params = f'"{script_path}" {" ".join(args)}'
+            result = ctypes.windll.shell32.ShellExecuteW(
+                None, "runas", python_exe, params, None, 1
+            )
+            # Per WinAPI docs, return value > 32 indicates success.
+            if result > 32:
+                return True, "Elevation requested. Please allow UAC and refresh service status."
+            return False, "Failed to request admin elevation (UAC canceled or unavailable)"
         
         except Exception as e:
             logger.error(f"Error requesting admin elevation: {e}")
