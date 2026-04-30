@@ -202,20 +202,6 @@ class AboutScreen(QWidget):
         top_row.setSpacing(SPACE_LG)
         top_row.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
-        logo_file = _logo_path()
-        if logo_file:
-            logo_lbl = QLabel()
-            pix = QPixmap(logo_file)
-            logo_lbl.setPixmap(
-                pix.scaled(
-                    180, 60,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-            )
-            logo_lbl.setStyleSheet("background: transparent;")
-            top_row.addWidget(logo_lbl)
-
         # Vertical divider
         vline = QFrame()
         vline.setFrameShape(QFrame.Shape.VLine)
