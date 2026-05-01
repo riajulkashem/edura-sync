@@ -652,7 +652,15 @@ if __name__ == "__main__":
     # Check for Windows service commands before starting GUI/service logic
     # Commands: install, update, remove, start, stop, restart, debug
     SERVICE_COMMANDS = ['install', 'update', 'remove', 'start', 'stop', 'restart', 'debug']
-    if len(sys.argv) > 1 and sys.argv[1] in SERVICE_COMMANDS:
+    
+    # Filter sys.argv to find the command even if a script path is passed (e.g. by an old ServiceManager)
+    # This makes the app robust against variations in how it's called.
+    filtered_args = [arg for arg in sys.argv if not arg.lower().endswith('.py') and not '_internal' in arg]
+    
+    # Check if any of our service commands are in the arguments
+    has_service_cmd = any(cmd in sys.argv for cmd in SERVICE_COMMANDS)
+    
+    if has_service_cmd:
         try:
             # We need to make sure the root directory is in sys.path to import 'scripts'
             root_dir = sys._MEIPASS if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
@@ -662,13 +670,18 @@ if __name__ == "__main__":
             from scripts.install_service import EduraSyncService
             import win32serviceutil
             
-            # HandleCommandLine will parse sys.argv[1:]
+            # If we found a service command but it wasn't at argv[1], 
+            # we may need to clean up sys.argv for win32serviceutil
+            if len(sys.argv) > 1 and sys.argv[1] not in SERVICE_COMMANDS:
+                # Reconstruct sys.argv without the script path
+                new_argv = [sys.argv[0]] + [arg for arg in sys.argv[1:] if arg in SERVICE_COMMANDS or arg.startswith('--')]
+                sys.argv = new_argv
+                
             win32serviceutil.HandleCommandLine(EduraSyncService)
             sys.exit(0)
         except Exception as e:
             # In case of error, log it and exit
             print(f"Service Management Error: {e}", file=sys.stderr)
-            # Try to log to file if setup_early_logging was called
             logging.error(f"Service Management Error: {e}", exc_info=True)
             sys.exit(1)
 
