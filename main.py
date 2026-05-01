@@ -491,7 +491,7 @@ class EduraSync:
                 old_timer.stop()
             old_timer.deleteLater()
 
-        timer = QTimer()
+        timer = QTimer(self)
         timer.timeout.connect(lambda: self._check_and_run_task(target_time, task_function, task_name))
         timer.start(60000)  # Check every minute
 
@@ -503,6 +503,7 @@ class EduraSync:
         current_time = QTime.currentTime()
         if (current_time.hour() == target_time.hour and
                 current_time.minute() == target_time.minute):
+            self.logger.info(f"Triggering scheduled task: {task_name}")
             # Prevent double-fire within the same minute window
             run_key = (current_time.hour(), current_time.minute())
             if self._last_task_run.get(task_name) == run_key:

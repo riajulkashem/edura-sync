@@ -32,24 +32,42 @@ class EduraSyncService(win32serviceutil.ServiceFramework):
         self.main()
 
     def main(self):
-        # Path to the executable
-        # If running from source, this would be python main.py --service
-        # If running from bundled exe, this should be the exe path
+        # Set up a simple logger for the service
+        log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logs", "service_runtime.log")
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        logging.basicConfig(filename=log_path, level=logging.INFO, 
+                            format='%(asctime)s - %(levelname)s - %(message)s')
         
-        exe_dir = os.path.dirname(os.path.abspath(sys.executable))
-        exe_path = os.path.join(exe_dir, "EduraSync.exe")
+        logging.info("Service main thread started")
         
-        if not os.path.exists(exe_path):
-            # Fallback for development
-            script_path = os.path.join(os.path.dirname(os.getcwd()), "main.py")
-            cmd = f'python "{script_path}" --service'
-        else:
-            cmd = f'"{exe_path}" --service'
+        try:
+            # Path to the executable/script
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.dirname(script_dir)
+            
+            exe_path = os.path.join(project_root, "EduraSync.exe")
+            main_py_path = os.path.join(project_root, "main.py")
+            
+            if os.path.exists(exe_path):
+                cmd = f'"{exe_path}" --service'
+                logging.info(f"Using bundled executable: {exe_path}")
+            elif os.path.exists(main_py_path):
+                # Use sys.executable to ensure we use the same environment
+                cmd = f'"{sys.executable}" "{main_py_path}" --service'
+                logging.info(f"Using source script: {main_py_path} with {sys.executable}")
+            else:
+                logging.error(f"Could not find main.py or EduraSync.exe in {project_root}")
+                return
 
-        self.process = subprocess.Popen(cmd, shell=True)
-        
-        # Wait for stop event
-        win32event.WaitForSingleObject(self.hWaitStop, win32event.INFINITE)
+            self.process = subprocess.Popen(cmd, shell=True)
+            logging.info(f"Background process started with PID: {self.process.pid}")
+            
+            # Wait for stop event
+            win32event.WaitForSingleObject(self.hWaitStop, win32event.INFINITE)
+            logging.info("Service stop signal received")
+            
+        except Exception as e:
+            logging.error(f"Error in service main loop: {e}", exc_info=True)
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:
