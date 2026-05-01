@@ -125,6 +125,26 @@ class SettingsScreen(QWidget):
         self._form["sync_time"].setToolTip("Daily time to pull from devices and push to cloud automatically")
         sched_form.addRow("Daily Sync Time:", self._form["sync_time"])
 
+        self._form["auto_sync_on_startup"] = QCheckBox("Auto-sync on startup")
+        self._form["auto_sync_on_startup"].setToolTip(
+            "When checked, the app will automatically start a full sync shortly after being opened."
+        )
+        sched_form.addRow("", self._form["auto_sync_on_startup"])
+
+        self._form["sync_interval"] = QComboBox()
+        self._form["sync_interval"].addItems([
+            "Disabled", "Every 15 minutes", "Every 30 minutes", 
+            "Every 1 hour", "Every 2 hours", "Every 6 hours"
+        ])
+        self._form["sync_interval"].setItemData(0, 0)
+        self._form["sync_interval"].setItemData(1, 15)
+        self._form["sync_interval"].setItemData(2, 30)
+        self._form["sync_interval"].setItemData(3, 60)
+        self._form["sync_interval"].setItemData(4, 120)
+        self._form["sync_interval"].setItemData(5, 360)
+        self._form["sync_interval"].setToolTip("Frequency for automatic background synchronization")
+        sched_form.addRow("Interval Sync:", self._form["sync_interval"])
+
         cols_row.addWidget(sched_group)
 
         layout.addLayout(cols_row)
@@ -411,10 +431,20 @@ class SettingsScreen(QWidget):
             is_enabled = getattr(settings, "is_sync_enabled", True)
             self._form["is_sync_enabled"].setChecked(bool(is_enabled))
             self._form["sync_time"].setEnabled(bool(is_enabled))
+            
+            auto_startup = getattr(settings, "auto_sync_on_startup", False)
+            self._form["auto_sync_on_startup"].setChecked(bool(auto_startup))
+            
+            interval = getattr(settings, "sync_interval", 0)
+            index = self._form["sync_interval"].findData(interval)
+            if index >= 0:
+                self._form["sync_interval"].setCurrentIndex(index)
         else:
             self._form["cloud_api_url"].setText(DEFAULT_SETTING.get("cloud_api_url", ""))
             self._form["sync_id"].setText(DEFAULT_SETTING.get("sync_id", ""))
             self._form["is_sync_enabled"].setChecked(True)
+            self._form["auto_sync_on_startup"].setChecked(False)
+            self._form["sync_interval"].setCurrentIndex(0)
 
     def _save_settings(self) -> None:
         try:
@@ -423,12 +453,16 @@ class SettingsScreen(QWidget):
             qt_time    = self._form["sync_time"].time()
             sync_time  = qt_time.toPython() if not qt_time.isNull() else None
             is_enabled = self._form["is_sync_enabled"].isChecked()
+            auto_startup = self._form["auto_sync_on_startup"].isChecked()
+            interval = self._form["sync_interval"].currentData()
 
             self.settings_repo.save_settings(
                 cloud_api_url=url,
                 sync_id=sync_id,
                 sync_time=sync_time,
                 is_sync_enabled=is_enabled,
+                auto_sync_on_startup=auto_startup,
+                sync_interval=interval,
             )
             if hasattr(self.api_sync, "load_settings"):
                 self.api_sync.load_settings()

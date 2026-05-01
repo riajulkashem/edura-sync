@@ -240,6 +240,8 @@ class Settings(BaseModel):
     sync_id = CharField(default="", index=True, help_text="Sync ID for all API requests")
     sync_time = TimeField(null=True)
     is_sync_enabled = BooleanField(default=True, help_text="Enable/disable the daily automatic sync schedule")
+    auto_sync_on_startup = BooleanField(default=False, help_text="Run a full sync automatically when the app starts")
+    sync_interval = IntegerField(default=0, help_text="Interval in minutes for automatic sync (0 to disable)")
     last_sync = DateTimeField(null=True, index=True)
     last_post = DateTimeField(null=True, index=True)
     attendance_pending = IntegerField(default=0)
@@ -329,6 +331,12 @@ def migrate_database():
             if 'is_sync_enabled' not in settings_columns:
                 db.execute_sql("ALTER TABLE settings ADD COLUMN is_sync_enabled INTEGER NOT NULL DEFAULT 1")
                 logger.info("Added is_sync_enabled column to settings table")
+            if 'auto_sync_on_startup' not in settings_columns:
+                db.execute_sql("ALTER TABLE settings ADD COLUMN auto_sync_on_startup INTEGER NOT NULL DEFAULT 0")
+                logger.info("Added auto_sync_on_startup column to settings table")
+            if 'sync_interval' not in settings_columns:
+                db.execute_sql("ALTER TABLE settings ADD COLUMN sync_interval INTEGER NOT NULL DEFAULT 0")
+                logger.info("Added sync_interval column to settings table")
         
         # Check if device column exists in attendance
         if db.table_exists('attendance'):

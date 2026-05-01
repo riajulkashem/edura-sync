@@ -441,12 +441,21 @@ class EduraSync(QObject):
             self._schedule_daily_task(settings.sync_time, self._full_sync, "daily_synchronization")
         elif not is_enabled:
             # Cancel any existing scheduled task when sync is disabled
-            if "daily_synchronization" in self.scheduled_timers:
-                old = self.scheduled_timers.pop("daily_synchronization")
-                if old and old.isActive():
-                    old.stop()
-                old.deleteLater()
-                self.logger.info("Daily sync disabled — cancelled existing timer")
+            self._stop_timer("daily_synchronization")
+            
+        # Start interval-based sync if configured
+        sync_interval = getattr(settings, "sync_interval", 0)
+        if sync_interval > 0:
+            self._schedule_interval_task(sync_interval, self._full_sync, "interval_synchronization")
+        else:
+            self._stop_timer("interval_synchronization")
+
+        # Trigger initial sync on startup if enabled
+        auto_startup = getattr(settings, "auto_sync_on_startup", False)
+        if auto_startup:
+            # Delay startup sync by 10 seconds to allow the app to fully initialize
+            self.logger.info("Auto-sync on startup is enabled - scheduling initial sync...")
+            QTimer.singleShot(10000, self._full_sync)
             
         # Trigger initial cleanup
         QTimer.singleShot(5000, self._periodic_cleanup_startup)
@@ -500,6 +509,28 @@ class EduraSync(QObject):
 
         self.scheduled_timers[task_name] = timer
         self.logger.info(f"Scheduled daily task '{task_name}' for {target_time}")
+
+    def _schedule_interval_task(self, interval_minutes: int, task_function, task_name: str):
+        """Schedule a repeating task to run every X minutes."""
+        self._stop_timer(task_name)
+
+        ms = interval_minutes * 60 * 1000
+        timer = QTimer(self)
+        timer.timeout.connect(task_function)
+        timer.start(ms)
+
+        self.scheduled_timers[task_name] = timer
+        self.logger.info(f"Scheduled interval task '{task_name}' every {interval_minutes} minutes")
+
+    def _stop_timer(self, task_name: str):
+        """Stop and remove a timer by name."""
+        if task_name in self.scheduled_timers:
+            old_timer = self.scheduled_timers.pop(task_name)
+            if old_timer:
+                if old_timer.isActive():
+                    old_timer.stop()
+                old_timer.deleteLater()
+            self.logger.info(f"Stopped and removed timer: {task_name}")
 
     def _check_and_run_task(self, target_time, task_function, task_name: str):
         """Check if it's time to run the task and execute it."""
