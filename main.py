@@ -649,8 +649,30 @@ class EduraSync(QObject):
         )
 
 if __name__ == "__main__":
+    # Check for Windows service commands before starting GUI/service logic
+    # Commands: install, update, remove, start, stop, restart, debug
+    SERVICE_COMMANDS = ['install', 'update', 'remove', 'start', 'stop', 'restart', 'debug']
+    if len(sys.argv) > 1 and sys.argv[1] in SERVICE_COMMANDS:
+        try:
+            # We need to make sure the root directory is in sys.path to import 'scripts'
+            root_dir = sys._MEIPASS if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
+            if root_dir not in sys.path:
+                sys.path.insert(0, root_dir)
+                
+            from scripts.install_service import EduraSyncService
+            import win32serviceutil
+            
+            # HandleCommandLine will parse sys.argv[1:]
+            win32serviceutil.HandleCommandLine(EduraSyncService)
+            sys.exit(0)
+        except Exception as e:
+            # In case of error, log it and exit
+            print(f"Service Management Error: {e}", file=sys.stderr)
+            # Try to log to file if setup_early_logging was called
+            logging.error(f"Service Management Error: {e}", exc_info=True)
+            sys.exit(1)
+
     # Global exception handler - set up early
-    sys.excepthook = handle_exception
     
     try:
         logger = logging.getLogger(__name__)

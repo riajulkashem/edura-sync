@@ -66,7 +66,14 @@ class ServiceManager:
             # Request UAC elevation via ShellExecuteW.
             # Avoids manual ctypes structure construction errors and works from GUI context.
             python_exe = sys.executable or "python.exe"
-            params = f'"{script_path}" {" ".join(args)}'
+            
+            if getattr(sys, "frozen", False):
+                # When frozen, the main EXE itself handles the commands
+                params = " ".join(args)
+            else:
+                # In development, we use python.exe + script_path + args
+                params = f'"{script_path}" {" ".join(args)}'
+                
             result = ctypes.windll.shell32.ShellExecuteW(
                 None, "runas", python_exe, params, None, 1
             )
@@ -129,9 +136,17 @@ class ServiceManager:
         
         # Already admin, proceed with installation
         try:
-            # Run install_service.py install
+            # Determine command based on environment
+            if getattr(sys, "frozen", False):
+                # Frozen: run EXE with args
+                cmd = [sys.executable, "install"]
+            else:
+                # Dev: run python + script + args
+                cmd = [sys.executable, script_path, "install"]
+
+            # Run install command
             result = subprocess.run(
-                [sys.executable, script_path, "install"],
+                cmd,
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -140,8 +155,9 @@ class ServiceManager:
             
             if result.returncode == 0:
                 # Start the service
+                start_cmd = [sys.executable, "start"] if getattr(sys, "frozen", False) else [sys.executable, script_path, "start"]
                 subprocess.run(
-                    [sys.executable, script_path, "start"],
+                    start_cmd,
                     capture_output=True,
                     timeout=30,
                     creationflags=subprocess.CREATE_NO_WINDOW if self.is_windows else 0
@@ -181,15 +197,17 @@ class ServiceManager:
         # Already admin, proceed with removal
         try:
             # Stop the service
+            stop_cmd = [sys.executable, "stop"] if getattr(sys, "frozen", False) else [sys.executable, script_path, "stop"]
             subprocess.run(
-                [sys.executable, script_path, "stop"],
+                stop_cmd,
                 capture_output=True,
                 timeout=30
             )
             
             # Remove the service
+            remove_cmd = [sys.executable, "remove"] if getattr(sys, "frozen", False) else [sys.executable, script_path, "remove"]
             result = subprocess.run(
-                [sys.executable, script_path, "remove"],
+                remove_cmd,
                 capture_output=True,
                 text=True,
                 timeout=30
