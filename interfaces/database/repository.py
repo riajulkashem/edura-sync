@@ -474,9 +474,10 @@ _SETTINGS_NOT_CACHED = object()  # Sentinel distinguishing "no cache" from "cach
 class SettingsRepository(BaseRepository):
     """Repository for Settings model operations."""
 
+    _settings_cache = _SETTINGS_NOT_CACHED  # Use sentinel, not None
+
     def __init__(self):
         super().__init__(Settings)
-        self._settings_cache = _SETTINGS_NOT_CACHED  # Use sentinel, not None
 
     def get_settings(self):
         """
@@ -487,11 +488,11 @@ class SettingsRepository(BaseRepository):
         Raises:
             DatabaseError: If a database error occurs.
         """
-        if self._settings_cache is not _SETTINGS_NOT_CACHED:
-            return self._settings_cache
+        if SettingsRepository._settings_cache is not _SETTINGS_NOT_CACHED:
+            return SettingsRepository._settings_cache
 
         settings = self.get()
-        self._settings_cache = settings  # Cache hit or None
+        SettingsRepository._settings_cache = settings  # Cache hit or None
         return settings
 
     def save_settings(self, **data):
@@ -512,5 +513,5 @@ class SettingsRepository(BaseRepository):
             result = self.create(**data)
 
         # Reset cache so the next read fetches the fresh record.
-        self._settings_cache = _SETTINGS_NOT_CACHED
+        SettingsRepository._settings_cache = _SETTINGS_NOT_CACHED
         return result

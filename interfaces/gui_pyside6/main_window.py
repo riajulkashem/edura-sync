@@ -153,7 +153,11 @@ class MainWindow(QMainWindow):
         )
         self._devices_screen    = DevicesScreen()
         self._attendance_screen = AttendanceScreen()
-        self._settings_screen   = SettingsScreen(self.api_sync, self.app_ref)
+        self._settings_screen   = SettingsScreen(
+            self.api_sync, self.app_ref, 
+            settings_repo=self.settings_repo, 
+            device_repo=self.device_repo
+        )
         self._about_screen      = AboutScreen()
 
         for screen in [

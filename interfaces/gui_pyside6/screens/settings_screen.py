@@ -30,13 +30,13 @@ class SettingsScreen(QWidget):
     settings_saved   = Signal()
     sig_initial_sync = Signal()  # Triggers SetupSyncWorker from main_window
 
-    def __init__(self, api_sync, app_ref, parent=None):
+    def __init__(self, api_sync, app_ref, settings_repo=None, device_repo=None, parent=None):
         super().__init__(parent)
         self.logger        = logging.getLogger(__name__)
         self.api_sync      = api_sync
         self.app_ref       = app_ref
-        self.settings_repo = SettingsRepository()
-        self.device_repo   = DeviceRepository()
+        self.settings_repo = settings_repo or SettingsRepository()
+        self.device_repo   = device_repo or DeviceRepository()
 
         self._form: dict[str, QWidget] = {}
 

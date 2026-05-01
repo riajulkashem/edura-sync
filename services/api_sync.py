@@ -43,7 +43,7 @@ class APISync:
 
     def _get_headers(self) -> Dict[str, str]:
         """Get headers for API requests."""
-        return {"X-Sync-Id": self.sync_id}
+        return {"x-sync-id": self.sync_id}
 
     def _get_endpoint(self, endpoint_key: str) -> str:
         """Get API endpoint from constants."""
