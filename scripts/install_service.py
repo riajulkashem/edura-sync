@@ -59,7 +59,13 @@ class EduraSyncService(win32serviceutil.ServiceFramework):
                 logging.error(f"Could not find main.py or EduraSync.exe in {project_root}")
                 return
 
-            self.process = subprocess.Popen(cmd, shell=True)
+            # Add creationflags to hide the console window on Windows
+            creationflags = 0
+            if sys.platform == "win32":
+                import subprocess as sp
+                creationflags = sp.CREATE_NO_WINDOW
+
+            self.process = subprocess.Popen(cmd, shell=True, creationflags=creationflags)
             logging.info(f"Background process started with PID: {self.process.pid}")
             
             # Wait for stop event

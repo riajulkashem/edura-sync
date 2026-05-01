@@ -110,7 +110,7 @@ except ImportError as e:
         raise
 
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import QTimer, QTime
+from PySide6.QtCore import QTimer, QTime, QObject
 from PySide6.QtGui import QIcon, QPixmap
 
 from core.config import Config
@@ -205,7 +205,7 @@ def handle_exception(exc_type, exc_value, exc_traceback):
         pass  # If GUI is not available, just continue
 
 
-class EduraSync:
+class EduraSync(QObject):
     """
     Main application class for EduraSync, managing GUI and services.
     Acts as a facade to coordinate subsystems.
@@ -219,6 +219,7 @@ class EduraSync:
             headless: Run without dashboard (tray only)
             service: Run as service (no GUI at all)
         """
+        super().__init__()
         self.running: bool = True
         self.headless = headless
         self.service = service
@@ -290,6 +291,8 @@ class EduraSync:
             self.dashboard_gui,  # Can be None in service mode
             self.notification_service,
         )
+        # Register tray as notification callback
+        self.notification_service.set_gui_callback(self.tray.show_message)
 
         # Initialize operation manager
         self.operation_manager = OperationManager()

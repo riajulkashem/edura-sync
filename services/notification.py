@@ -24,7 +24,13 @@ class NotificationService:
         self.config = config
         self.logger = logging.getLogger(__name__)
         self.icon_path = None
+        self._gui_callback = None
         self._setup_notification_system()
+
+    def set_gui_callback(self, callback) -> None:
+        """Register a callback for GUI-based notifications."""
+        self._gui_callback = callback
+        self.logger.info("GUI notification callback registered")
 
     def _setup_notification_system(self) -> None:
         """Set up the notification system based on available backends."""
@@ -63,6 +69,15 @@ class NotificationService:
         """
         # Log notification for debugging
         self.logger.debug(f"Notification: {title} - {message}")
+
+        if self._gui_callback:
+            try:
+                self._gui_callback(title, message, notification_type)
+                # If GUI notification is shown, we might still want to log it
+                self.logger.debug(f"GUI notification displayed: {title}")
+                return
+            except Exception as e:
+                self.logger.error(f"Failed to show GUI notification: {e}")
 
         if NOTIFY_AVAILABLE:
             self._send_desktop_notification(title, message, notification_type)

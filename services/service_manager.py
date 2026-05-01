@@ -41,7 +41,7 @@ class ServiceManager:
             return False
         
         try:
-            return bool(ctypes.windll.shell.IsUserAnAdmin())
+            return bool(ctypes.windll.shell32.IsUserAnAdmin())
         except Exception as e:
             logger.error(f"Failed to check admin status: {e}")
             return False
@@ -134,7 +134,8 @@ class ServiceManager:
                 [sys.executable, script_path, "install"],
                 capture_output=True,
                 text=True,
-                timeout=30
+                timeout=30,
+                creationflags=subprocess.CREATE_NO_WINDOW if self.is_windows else 0
             )
             
             if result.returncode == 0:
@@ -142,7 +143,8 @@ class ServiceManager:
                 subprocess.run(
                     [sys.executable, script_path, "start"],
                     capture_output=True,
-                    timeout=30
+                    timeout=30,
+                    creationflags=subprocess.CREATE_NO_WINDOW if self.is_windows else 0
                 )
                 return True, "Service installed and started successfully"
             else:
@@ -220,7 +222,8 @@ class ServiceManager:
                 ["sc", "query", self.SERVICE_NAME],
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
+                creationflags=subprocess.CREATE_NO_WINDOW if self.is_windows else 0
             )
             return result.returncode == 0
         except Exception as e:
@@ -245,7 +248,8 @@ class ServiceManager:
                 ["sc", "query", self.SERVICE_NAME],
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
+                creationflags=subprocess.CREATE_NO_WINDOW if self.is_windows else 0
             )
             
             if "RUNNING" in result.stdout:

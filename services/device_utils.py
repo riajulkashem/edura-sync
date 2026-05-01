@@ -60,6 +60,7 @@ class DeviceConnectionManager:
                     port=device.port,
                     password=password,
                     timeout=10,  # Increased timeout for better reliability
+                    ommit_ping=True,  # Suppress shell pop-ups from internal ping
                 )
                 
                 conn = zk.connect()

@@ -301,6 +301,20 @@ class SystemTray:
             # Right-click on ALL platforms shows the context menu.
             QTimer.singleShot(0, self._show_menu)
 
+    def show_message(self, title: str, message: str, notification_type: str = "info") -> None:
+        """Display a system tray notification message."""
+        if not self.tray_icon:
+            return
+
+        # Map notification type to QSystemTrayIcon.MessageIcon
+        icon = QSystemTrayIcon.MessageIcon.Information
+        if notification_type == "error":
+            icon = QSystemTrayIcon.MessageIcon.Critical
+        elif notification_type == "warning":
+            icon = QSystemTrayIcon.MessageIcon.Warning
+
+        self.tray_icon.showMessage(title, message, icon, 5000)
+
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     def run(self) -> None:
