@@ -135,6 +135,27 @@ class UserRepository(BaseRepository):
         self._cache_timestamps = {}  # Track when entries were cached
         self._cache_ttl = 300  # 5-minute TTL in seconds
         self._max_cache_size = 1000  # Maximum cache entries
+
+    def _cache_key(self, user_id: str) -> str:
+        """Normalize user IDs so cache keys match DB lookup values."""
+        return str(user_id).strip()
+
+    def _cache_user(self, user: Optional[User]) -> None:
+        if user:
+            key = self._cache_key(user.user_id)
+            self._user_cache[key] = user
+            from datetime import datetime
+            self._cache_timestamps[key] = datetime.now()
+
+    def invalidate_user_cache(self, user_id: Optional[str] = None) -> None:
+        """Invalidate one cached user lookup, or the whole user cache."""
+        if user_id is None:
+            self.clear_cache()
+            return
+
+        key = self._cache_key(user_id)
+        self._user_cache.pop(key, None)
+        self._cache_timestamps.pop(key, None)
     
     def get_by_user_id(self, user_id: str) -> Optional[User]:
         """
@@ -146,6 +167,8 @@ class UserRepository(BaseRepository):
             DatabaseError: If a database error occurs.
         """
         from datetime import datetime
+
+        user_id = self._cache_key(user_id)
 
         _MISSING = object.__new__(object)  # sentinel stored once at module level would be cleaner
         # Use a module-level sentinel to distinguish "cached None" from "not cached".
@@ -172,6 +195,30 @@ class UserRepository(BaseRepository):
         self._cache_timestamps[user_id] = datetime.now()
 
         return user
+
+    def create(self, **data) -> User:
+        user = super().create(**data)
+        self._cache_user(user)
+        return user
+
+    def create_bulk(self, data_list: List[Dict]) -> int:
+        created = super().create_bulk(data_list)
+        self.clear_cache()
+        return created
+
+    def update(self, obj: User, **data) -> User:
+        old_user_id = obj.user_id
+        user = super().update(obj, **data)
+        if old_user_id != user.user_id:
+            self.invalidate_user_cache(old_user_id)
+        self._cache_user(user)
+        return user
+
+    def update_bulk(self, data: Dict, ids: Optional[List[int]] = None, **filters) -> int:
+        updated = super().update_bulk(data, ids=ids, **filters)
+        if updated:
+            self.clear_cache()
+        return updated
 
     def get_unsaved_to_device(self, device_id: Optional[int] = None) -> List[User]:
         """

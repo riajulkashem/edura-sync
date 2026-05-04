@@ -2,9 +2,10 @@
 import logging
 import requests
 from typing import Dict, Optional, List
+from peewee import IntegrityError
 
 from core.constants import API_ENDPOINTS
-from core.exceptions import APICallError
+from core.exceptions import APICallError, DatabaseError
 from interfaces.database.models import Device, User
 
 
@@ -217,6 +218,8 @@ class APISync:
         """Post attendance data to the cloud API using sync_id only."""
         self.logger.info("Starting data post to cloud")
         attendance_data = self.attendance_repo.cloud_format()
+        print(f"Debug: Retrieved attendance data for cloud post: {attendance_data}")
+        self.logger.debug(f"Retrieved attendance data for cloud post: {attendance_data}")
         if not attendance_data:
             self.logger.warning("No valid attendance data to post")
             self.notification_service.notify(
@@ -296,6 +299,7 @@ class APISync:
 
         # Step 1: Pull users and devices from cloud API
         cloud_data = self._pull_users_from_cloud()
+        self.logger.debug(f"Cloud data pulled for users/devices: {cloud_data}")
         if not cloud_data:
             self.logger.error("Failed to pull users and devices from cloud")
             self.notification_service.notify(
@@ -349,10 +353,10 @@ class APISync:
                 devices = []
 
             # Validate individual user records and report missing expected fields
-            _expected_user_keys = {"id", "name", "type", "card", "device_id"}
+            _expected_user_keys = {"id", "name", "device_id"}
             for idx, u in enumerate(users[:3]):  # sample first 3 only
                 missing = _expected_user_keys - set(u.keys())
-                extra   = set(u.keys()) - _expected_user_keys - {"role", "password", "group_id", "device_code", "card_number"}
+                extra   = set(u.keys()) - _expected_user_keys - {"type", "user_type", "role", "password", "group_id", "device_code", "card", "card_number"}
                 if missing:
                     self.logger.warning(f"User[{idx}] missing keys: {missing} — record: {u}")
                 if extra:
@@ -425,7 +429,10 @@ class APISync:
         for user_data in cloud_users:
             self.logger.debug(f"Processing cloud user data: {user_data}")
             # Match user by cloud ID only - user_id field stores cloud ID
-            cloud_id_str = str(user_data.get('id', ''))
+            cloud_id_str = str(user_data.get('id', '')).strip()
+            if not cloud_id_str:
+                self.logger.warning(f"Skipping cloud user without an id: {user_data}")
+                continue
             existing_user = self.user_repo.get_by_user_id(cloud_id_str)
 
             # Find the assigned device from local DB based on cloud's device_id
@@ -436,22 +443,36 @@ class APISync:
 
             # API returns "card" (not "card_number")
             card_value = user_data.get('card') or user_data.get('card_number')
+            user_type = user_data.get('type') or user_data.get('user_type') or 'STUDENT'
 
             if not existing_user:
-                # Create new user
-                user = User(
-                    name=user_data.get('name', ''),
-                    user_type=user_data.get('type', 'STUDENT'),
-                    role=user_data.get('role', 0),
-                    password=user_data.get('password', ''),
-                    group_id=user_data.get('group_id', ''),
-                    user_id=str(user_data.get('id', '')),
-                    card=card_value,
-                    device_code=user_data.get('device_code'),
-                    device=assigned_device,
-                    saved_to_device=False
-                )
-                user.save()
+                # Create new user. If the repository had a stale negative cache
+                # entry, the unique constraint may still reveal an existing row.
+                try:
+                    user = self.user_repo.create(
+                        name=user_data.get('name', ''),
+                        user_type=user_type,
+                        role=user_data.get('role', 0),
+                        password=user_data.get('password', ''),
+                        group_id=user_data.get('group_id'),
+                        user_id=cloud_id_str,
+                        card=card_value,
+                        device_code=user_data.get('device_code'),
+                        device=assigned_device,
+                        saved_to_device=False
+                    )
+                except (IntegrityError, DatabaseError) as exc:
+                    if "UNIQUE constraint failed: users.user_id" not in str(exc):
+                        raise
+                    self.user_repo.invalidate_user_cache(cloud_id_str)
+                    existing_user = self.user_repo.get_by_user_id(cloud_id_str)
+                    if existing_user:
+                        self.logger.info(
+                            f"Cloud user already exists locally; skipping duplicate create: "
+                            f"{existing_user.name} ({existing_user.user_id})"
+                        )
+                        continue
+                    raise
                 saved_count += 1
                 self.logger.debug(
                     f"Created new user: {user.name} ({user.user_id}) "
@@ -460,7 +481,7 @@ class APISync:
             else:
                 # Update existing user
                 existing_user.name = user_data.get('name', existing_user.name)
-                existing_user.user_type = user_data.get('type', existing_user.user_type)
+                existing_user.user_type = user_type
                 existing_user.device = assigned_device
                 existing_user.role = user_data.get('role', existing_user.role)
                 existing_user.password = user_data.get('password', existing_user.password)
